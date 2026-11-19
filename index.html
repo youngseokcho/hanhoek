@@ -676,7 +676,7 @@ function fitArcs(pts, tol){
         const dx=pts[k][0]-ux, dy=pts[k][1]-uy;
         if(Math.abs(Math.hypot(dx,dy)-r)>tol){ ok=false; break; }
         const a1=Math.atan2(dy,dx); let da=a1-a0; if(da>Math.PI) da-=2*Math.PI; else if(da<-Math.PI) da+=2*Math.PI; a0=a1;
-        if(Math.abs(da)>MAXSTEP){ ok=false; break; }
+        if(Math.abs(da)>MAXSTEP || r*(1-Math.cos(Math.abs(da)/2))>tol){ ok=false; break; }
         const s=Math.sign(da); if(s){ if(dir&&s!==dir){ ok=false; break; } dir=s; }
         sweep+=da;
       }
