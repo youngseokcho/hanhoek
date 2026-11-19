@@ -6,7 +6,6 @@
 <title>한획 플로터</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2f6fec">
-<meta name="robots" content="noindex, nofollow, noarchive">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 
@@ -236,6 +235,8 @@ main.noleft #left, main.noright #right{display:none}
           <select id="paperSel">
             <option value="210x297">A4 세로</option><option value="297x210">A4 가로</option>
             <option value="297x420">A3 세로</option><option value="420x297">A3 가로</option>
+            <option value="420x594">A2 세로</option><option value="594x420">A2 가로</option>
+            <option value="594x841">A1 세로</option><option value="841x594">A1 가로</option>
             <option value="148x210">A5 세로</option><option value="100x148">엽서</option>
             <option value="custom">직접</option>
           </select>
@@ -245,6 +246,7 @@ main.noleft #left, main.noright #right{display:none}
         </div>
         <div class="sep"></div>
         <div id="boundsMsg"></div>
+        <div id="paperAdv" style="font-size:12px;margin-top:6px"></div>
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">정리 <span style="font-weight:500">레이어·색별 켜고 끄기</span></h3>
         <div id="groupList" style="max-height:150px;overflow:auto;font-size:12px"></div>
@@ -273,6 +275,7 @@ main.noleft #left, main.noright #right{display:none}
       <div class="tab" id="tPen">
         <div class="tip">🪙 <b>동전 영점 방식</b><br>종이 위에 동전을 놓고, Z−로 펜 끝이 동전에 막 닿게 한 뒤 <b>Z 영점(동전)</b>을 누릅니다. 동전을 치우면 고무가 펜을 종이까지 내려 줍니다. 그래서 내림은 Z0, 올림은 동전 두께와 고무 늘어남보다 충분히 높게(Z5) 둡니다.</div>
         <div class="f" style="margin-top:8px">
+          <label>펜 굵기 mm<small>용지 추천 기준</small></label><input type="number" step="0.05" min="0.05" data-k="penW">
           <label>펜 올림 Z<small>이동 중 끌리면 키우기</small></label><input type="number" step="0.5" data-k="zUp">
           <label>펜 내림 Z<small>동전 영점이면 0</small></label><input type="number" step="0.1" data-k="zContact">
           <label>더 누르기 mm<small>흐리게 그려지면 0.3~1</small></label><input type="number" step="0.1" min="0" data-k="zExtra">
@@ -342,7 +345,7 @@ const DEFAULTS = {
   feedDraw:1500, travelMode:'G0', feedTravel:1500, jogFeed:1500, zStep:1,
   travelX:1000, travelY:1000, rapid:4000, accelXY:1600, accelZ:2000, junction:0.01,
   pollMs:250, simSpeed:4, arcFit:'1', arcTol:0.02, rxBuf:120, tol:0.1, step:10, hideLeft:false, hideRight:false,
-  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true
+  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, penW:0.4, showCrowd:false
 };
 const LS_KEY='hanhoek.settings.v2';
 let S = Object.assign({}, DEFAULTS), migrated=false;
@@ -1113,6 +1116,8 @@ function orderAndMerge(paths, joinTol){
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   for(const p of paths){ for(const q of [p[0],p[p.length-1]]){ if(q[0]<x0)x0=q[0]; if(q[1]<y0)y0=q[1]; if(q[0]>x1)x1=q[0]; if(q[1]>y1)y1=q[1]; } }
   const W=Math.max(x1-x0,1e-6), H=Math.max(y1-y0,1e-6);
+  // 이어 그리기 허용 거리: 그림 크기의 1/10000 (작은 단위 도면을 키워도 촘촘한 선끼리 붙지 않게)
+  joinTol=Math.min(joinTol, Math.hypot(W,H)*1e-4);
   const cell=Math.max(Math.sqrt(W*H/n)*1.5, 1e-3);
   const gw=Math.ceil(W/cell)+1, gh=Math.ceil(H/cell)+1;
   const grid=new Map(); const key=(i,j)=>i*gh+j;
@@ -1138,12 +1143,61 @@ function orderAndMerge(paths, joinTol){
     }
     const pi=best>>1; used[pi]=1; left--;
     let p=paths[pi]; if(best&1) p=p.slice().reverse();
-    if(cur && Math.sqrt(bd)<=joinTol){ for(let k=1;k<p.length;k++) cur.push(p[k]); }
+    if(cur && Math.sqrt(bd)<=joinTol){ for(let k=(bd<1e-18?1:0);k<p.length;k++) cur.push(p[k]); }
     else { cur=p.slice(); out.push(cur); }
     const e=cur[cur.length-1]; cx=e[0]; cy=e[1];
   }
   return out;
 }
+
+/* ================= 촘촘함 검사 · 용지 추천 =================
+   나란한 이웃 선과의 간격(펜 중심 사이)과 작은 닫힌 모양 크기를 원본 단위로 잰 뒤,
+   펜 굵기 w 기준: 최소 = 간격 1.25w(흰 틈 0.25w), 적정 = 간격 2w(흰 틈 = w). */
+const PAPERS=[['A5',148,210],['A4',210,297],['A3',297,420],['A2',420,594],['A1',594,841],['A0',841,1189]];
+function detailScan(o){
+  const P=o.src; let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity, total=0;
+  for(const p of P) for(let k=0;k<p.length;k++){ const q=p[k]; if(q[0]<x0)x0=q[0]; if(q[1]<y0)y0=q[1]; if(q[0]>x1)x1=q[0]; if(q[1]>y1)y1=q[1]; if(k) total+=Math.hypot(q[0]-p[k-1][0],q[1]-p[k-1][1]); }
+  const D=Math.hypot(x1-x0,y1-y0)||1, R=D/250, eps=D*1e-5, SIN=Math.sin(10*Math.PI/180);
+  const segs=[]; const cell=R, gw=Math.ceil((x1-x0)/cell)+1, grid=new Map();
+  P.forEach((p,pi)=>{ let s=0; for(let k=0;k<p.length-1;k++){ const a=p[k],b=p[k+1], L=Math.hypot(b[0]-a[0],b[1]-a[1]); if(L>eps){ const id=segs.length; segs.push([a,b,pi,s,s+L,L]);
+      const i0=Math.floor((Math.min(a[0],b[0])-x0)/cell), i1=Math.floor((Math.max(a[0],b[0])-x0)/cell), j0=Math.floor((Math.min(a[1],b[1])-y0)/cell), j1=Math.floor((Math.max(a[1],b[1])-y0)/cell);
+      if((i1-i0+1)*(j1-j0+1)<=4000) for(let i=i0;i<=i1;i++) for(let j=j0;j<=j1;j++){ const key=j*gw+i; let A=grid.get(key); if(!A){A=[];grid.set(key,A);} A.push(id); } }
+    s+=L; } });
+  const h=Math.max(D/1500, total/80000);
+  const gaps=[], marks=[]; let sampled=0;
+  for(const sg of segs){ const [a,b,pi,s0,,L]=sg; const ux=(b[0]-a[0])/L, uy=(b[1]-a[1])/L; const n=Math.max(1,Math.round(L/h));
+    for(let t=0;t<n;t++){ const f=(t+0.5)/n, px=a[0]+(b[0]-a[0])*f, py=a[1]+(b[1]-a[1])*f, ps=s0+L*f; sampled+=L/n;
+      const ci=Math.floor((px-x0)/cell), cj=Math.floor((py-y0)/cell); let best=Infinity;
+      for(let i=ci-1;i<=ci+1;i++) for(let j=cj-1;j<=cj+1;j++){ const A=grid.get(j*gw+i); if(!A) continue;
+        for(const id of A){ const o2=segs[id]; if(o2===sg) continue; const [c,e,pj,t0,t1,L2]=o2; const vx=(e[0]-c[0])/L2, vy=(e[1]-c[1])/L2;
+          if(Math.abs(ux*vy-uy*vx)>SIN) continue;
+          const pr=(px-c[0])*vx+(py-c[1])*vy; if(pr<=L2*0.02||pr>=L2*0.98) continue;
+          const d=Math.abs((px-c[0])*vy-(py-c[1])*vx); if(d<=eps||d>=best||d>R) continue;
+          if(pj===pi){ const sd=ps<t0?t0-ps:ps>t1?ps-t1:0; if(sd<3*d) continue; }
+          best=d; } }
+      if(best<Infinity){ gaps.push([best,L/n]); marks.push(px,py,best); } } }
+  gaps.sort((p,q)=>p[0]-q[0]);
+  const shapes=[]; for(const p of P){ if(p.length<3) continue; const a=p[0],e=p[p.length-1]; if(Math.hypot(a[0]-e[0],a[1]-e[1])>D*1e-4) continue; const bb=bboxOf([p]); const m=Math.max(bb[2]-bb[0],bb[3]-bb[1]); if(m>eps&&m<R*2) shapes.push(m); }
+  shapes.sort((p,q)=>p-q);
+  return {D, total:sampled||1, gaps, shapes, marks:new Float32Array(marks)};
+}
+function detailInfo(o){
+  const c=o.cache; if(!c.detail) c.detail=detailScan(o); return c.detail;
+}
+// 길이 비율 q 지점의 간격
+function gapAt(r,q){ let acc=0; const lim=q*r.total; for(const [d,w] of r.gaps){ acc+=w; if(acc>=lim) return d; } return Infinity; }
+function shapeAt(r,q){ if(!r.shapes.length) return Infinity; return r.shapes[Math.min(r.shapes.length-1,Math.floor(q*r.shapes.length))]; }
+function crowdedShare(r,scale,w){ const thr=1.25*w/scale; let acc=0; for(const [d,wt] of r.gaps){ if(d>=thr) break; acc+=wt; } return acc/r.total; }
+function paperFor(W,H){ const m=10; for(const [n,pw,ph] of PAPERS){ if(W+2*m<=pw&&H+2*m<=ph) return {n,w:pw,h:ph,rot:'세로'}; if(W+2*m<=ph&&H+2*m<=pw) return {n,w:ph,h:pw,rot:'가로'}; } return null; }
+function paperAdvice(o){
+  const r=detailInfo(o), w=+S.penW||0.4;
+  const need=(q,k)=>{ const g=gapAt(r,q); return g<Infinity? k*w/g : 0; };
+  // 최소: 그리는 길이의 5%까지만 붙어 보임(간격<1.25w) 허용 / 적정: 2%까지만 간격<2w
+  const sMin=need(0.05,1.25), sOk=need(0.02,2);
+  const mk=s=>{ if(!(s>0)||!isFinite(s)) return {scale:0,W:0,H:0,paper:paperFor(0,0)}; const W=o.w0*s,H=o.h0*s; return {scale:s,W,H,paper:paperFor(W,H)}; };
+  return {min:mk(sMin), ok:mk(sOk), now:crowdedShare(r,o.scale,w), w};
+}
+function applyPaper(p,o){ S.paperW=p.w; S.paperH=p.h; saveS(); bindForm(); fitToPaper(); }
 
 /* ================= 작업(문서) 모델 → .hplot ================= */
 const Doc = { objects:[] };
@@ -1427,6 +1481,20 @@ const UI = {
     $('#progtxt').textContent=(Job.paused?'일시정지 · ':'')+Math.round(pct*100)+'% · '+fmtTime(el)+' 지남 · 약 '+fmtTime(Math.max(0,remain))+' 남음';
     draw();
   },
+  advice(o){
+    const el=$('#paperAdv'); if(!o){ el.innerHTML=''; return; }
+    let a; try{ a=paperAdvice(o); }catch(e){ el.innerHTML=''; console.warn(e); return; }
+    const row=(t,x,id)=>{ if(!x.scale) return `<div><span>${t}</span><b>어떤 크기든 괜찮음</b></div>`;
+      const p=x.paper; return `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:2px 0"><span style="white-space:nowrap">${t}</span><span style="text-align:right"><b>${p?p.n+' '+p.rot:'A0보다 큼'}</b> <span class="muted">그림 ${fmt(x.W,0)}×${fmt(x.H,0)}</span>${p?` <button class="btn sm" id="${id}" style="padding:1px 6px">이 용지로</button>`:''}</span></div>`; };
+    const pct=a.now*100, cls=pct<0.5?'ok':pct<3?'warn':'bad';
+    const over=x=>x.paper&&(x.paper.w>S.travelX||x.paper.h>S.travelY);
+    el.innerHTML=`<div style="color:var(--muted);margin-bottom:2px">용지 추천 <span>(펜 ${a.w}mm 기준)</span></div>${row('최소',a.min,'bPapMin')}${row('적정',a.ok,'bPapOk')}
+      <div style="margin-top:3px"><span class="badge ${cls}">지금 크기: 선이 붙어 보이는 곳 ${pct<0.1?'거의 없음':'약 '+fmt(pct,pct<10?1:0)+'%'}</span></div>
+      ${over(a.ok)||over(a.min)?'<div class="muted">기계 이동 범위('+S.travelX+'mm)보다 큰 용지는 나눠 그려야 합니다.</div>':''}
+      <label style="display:flex;gap:5px;align-items:center;margin-top:4px"><input type="checkbox" id="cCrowd" ${S.showCrowd?'checked':''}> 붙어 보이는 곳 표시 <span style="color:var(--bad)">● 빨강</span></label>`;
+    const bm=$('#bPapMin'), bo=$('#bPapOk'); if(bm) bm.onclick=()=>applyPaper(a.min.paper,o); if(bo) bo.onclick=()=>applyPaper(a.ok.paper,o);
+    $('#cCrowd').onchange=e=>{ S.showCrowd=e.target.checked; saveS(); draw(); };
+  },
   obj(light){
     const o=activeObj();
     if(!Job.running && Job.doneP2D){ Job.doneP2D=null; Job.doneUpTo=-1; Job.lines=[]; Job.acked=0; $('#progbar').style.width='0'; $('#progtxt').textContent='대기'; }
@@ -1447,6 +1515,7 @@ const UI = {
         ${o.rot?`<div><span>돌림</span><b>${o.rot}°</b></div>`:''}
         ${o.note?`<div class="muted" style="display:block;margin-top:3px">${o.note}</div>`:''}`;
     }
+    if(!light) UI.advice(o);
     const b=boundsCheck(o);
     $('#boundsMsg').innerHTML = b.over ? `<span class="badge bad">⚠ 기계 범위 넘음</span> <span class="muted">"용지에 맞춤"</span>`
       : b.offPaper ? `<span class="badge warn">용지 밖으로 나감</span>` : `<span class="badge ok">✓ 용지 안, 기계 범위 안</span>`;
@@ -1499,6 +1568,8 @@ function drawNow(){
     if(showTravel){ ctx.strokeStyle=COL['--travel']; ctx.globalAlpha=.6; ctx.lineWidth=1/k; ctx.stroke(c.travel); ctx.globalAlpha=1; }
     ctx.strokeStyle=COL['--path']; ctx.globalAlpha=Job.doneP2D?.45:1; ctx.lineWidth=1/k;   // 화면에서 늘 1px
     ctx.stroke(c.p2d); ctx.globalAlpha=1;
+    if(S.showCrowd && c.detail){ const thr=1.25*(+S.penW||0.4)/s, M=c.detail.marks; ctx.fillStyle=COL['--bad']; ctx.globalAlpha=.55; ctx.beginPath(); const r=Math.max(0.6*(+S.penW||0.4)/s, 2.5/k);
+      for(let i=0;i<M.length;i+=3){ if(M[i+2]<thr){ ctx.moveTo(M[i]+r,M[i+1]); ctx.arc(M[i],M[i+1],r,0,Math.PI*2); } } ctx.fill(); ctx.globalAlpha=1; }
     if(S.showDel && c.delN){ ctx.save(); ctx.translate(-o.mx,-o.my); ctx.strokeStyle=COL['--bad']; ctx.globalAlpha=.85; ctx.lineWidth=1.2/k; ctx.setLineDash([4/k,3/k]); ctx.stroke(c.delP); ctx.restore(); }
     if(previewDel && previewDel.length){ ctx.save(); ctx.translate(-o.mx,-o.my); ctx.strokeStyle=COL['--bad']; ctx.lineWidth=2.5/k; ctx.beginPath(); for(const it of previewDel){ const p=it.p; ctx.moveTo(p[0][0],p[0][1]); if(p.length===1) ctx.lineTo(p[0][0]+0.01,p[0][1]); for(let j=1;j<p.length;j++) ctx.lineTo(p[j][0],p[j][1]); } ctx.stroke();
       ctx.globalAlpha=.5; ctx.lineWidth=1.5/z; for(const it of previewDel){ const b=bboxOf([it.p]); const r=Math.max(6/(z*o.scale),(b[2]-b[0])/2,(b[3]-b[1])/2); ctx.beginPath(); ctx.arc((b[0]+b[2])/2,(b[1]+b[3])/2,r*1.4,0,Math.PI*2); ctx.lineWidth=1.5/k; ctx.stroke(); if(previewDel.length>60) break; } ctx.restore(); }
