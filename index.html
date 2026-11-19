@@ -736,7 +736,7 @@ function parseSHX(buf, fname){
     const a=dv.getUint16(p,true), b2=dv.getUint16(p+2,true), nr=dv.getUint16(p+4,true); p+=6;
     const ranges=[]; for(let i=0;i<nr;i++){ ranges.push([dv.getUint16(p,true),dv.getUint16(p+2,true)]); p+=4; }
     const readIdx=(n)=>{ const out=new Map(); let q=p, inf=null, bad=0; for(let i=0;i<n && q+8<=u8.length;i++){ const code=dv.getUint16(q,true), len=dv.getUint16(q+2,true), off=dv.getUint32(q+4,true); q+=8; if(!code&&!len&&!off) continue; if(off+len>u8.length){ bad++; continue; } const b=u8.subarray(off,off+len); if(code===0) inf=b; else out.set(code,b); } return {out,inf,bad}; };
-    let r=readIdx(a); if(r.bad>r.out.size){ const r2=readIdx(b2); if(r2.bad<r.bad) r=r2; }
+    let r=readIdx(b2); if(r.out.size<2 || r.bad>r.out.size){ const r2=readIdx(a); if(r2.out.size>r.out.size) r=r2; } // 보통 둘째 값이 글자 수
     r.out.forEach((v,k)=>shapes.set(k,v)); info=r.inf; Object.defineProperty(shapes,'ranges',{value:ranges});
   } else {
     const n=dv.getUint32(p,true), il=dv.getUint16(p+4,true); p+=6; info=u8.subarray(p,p+il); p+=il;
@@ -785,10 +785,10 @@ function shxGlyph(f, code){
           break; }
         case 8: { const dx=sb(b[i++]), dy=sb(b[i++]); mv(dx,dy); break; }
         case 9: { for(;;){ const dx=sb(b[i++]), dy=sb(b[i++]); if((!dx&&!dy)||i>b.length) break; mv(dx,dy); } break; }
-        case 10: { const r=b[i++]*sc, o=sb(b[i++]); if(sk) break; const dir=o<0?-1:1, so=(Math.abs(o)>>4)&7, n=(Math.abs(o)&7)||8;
+        case 10: { const r=b[i++]*sc, o=b[i++]; if(sk) break; const dir=(o&0x80)?-1:1, so=(o>>4)&7, n=(o&7)||8; // 부호는 맨 위 비트 (AutoCAD 실제 파일로 확인)
           const a0=so*Math.PI/4, R=r*T[0]; const cx=x-R*Math.cos(a0), cy=y-R*Math.sin(a0); arc(cx,cy,R,a0,dir*n*Math.PI/4); break; }
-        case 11: { const s0=b[i++], e0=b[i++], r=((b[i]<<8)|b[i+1])*sc; i+=2; const o=sb(b[i++]); if(sk) break; const dir=o<0?-1:1, so=(Math.abs(o)>>4)&7, n=(Math.abs(o)&7)||8;
-          const a0=(so*45+dir*s0*45/256)*Math.PI/180, a1=((so+dir*(n-1))*45+dir*e0*45/256)*Math.PI/180; const R=r*T[0];
+        case 11: { const s0=b[i++], e0=b[i++], r=((b[i]<<8)|b[i+1])*sc; i+=2; const o=b[i++]; if(sk) break; const dir=(o&0x80)?-1:1, so=(o>>4)&7, n=(o&7)||8;
+          const a0=(so*45+dir*s0*45/256)*Math.PI/180, a1=(e0? (so+dir*(n-1))*45+dir*e0*45/256 : (so+dir*n)*45)*Math.PI/180; const R=r*T[0];
           const cx=x-R*Math.cos(a0), cy=y-R*Math.sin(a0); let sw=a1-a0; if(dir>0&&sw<=0) sw+=2*Math.PI; if(dir<0&&sw>=0) sw-=2*Math.PI; arc(cx,cy,R,a0,sw); break; }
         case 12: { const dx=sb(b[i++]), dy=sb(b[i++]), bg=sb(b[i++]); if(!sk){ const [a,bb]=tr(dx*sc,dy*sc); bulge(a,bb,bg); } break; }
         case 13: { for(;;){ const dx=sb(b[i++]), dy=sb(b[i++]); if((!dx&&!dy)||i>b.length) break; const bg=sb(b[i++]); if(!sk){ const [a,bb]=tr(dx*sc,dy*sc); bulge(a,bb,bg); } } break; }
@@ -831,8 +831,11 @@ function fontSet(main, big){
   return {M, B, wanted:used};
 }
 function glyphFor(fs, cp){
-  if(fs.M){ let c=cp; if(cp===0xB0) c=127; else if(cp===0xB1) c=128; else if(SYM[cp]==='⌀') c=129;
-    if(fs.M.kind==='unifont'||c<256){ const g=shxGlyph(fs.M,c); if(g) return g; } }
+  if(fs.M){
+    if(fs.M.kind==='unifont'){ // 유니코드 글꼴: 코드 그대로 (지름 기호는 ∅/ø 로도 찾음)
+      for(const c of (SYM[cp]==='⌀'?[cp,0x2205,0xF8,0xD8]:[cp])){ const g=shxGlyph(fs.M,c); if(g) return g; } }
+    else { let c=cp; if(cp===0xB0) c=127; else if(cp===0xB1) c=128; else if(SYM[cp]==='⌀') c=129; // 옛 shapes 글꼴의 %%d %%p %%c 자리
+      if(c<256){ const g=shxGlyph(fs.M,c); if(g) return g; } } }
   if(cp>=128 && fs.B){ const code=cp949Map().get(cp); if(code){ const g=shxGlyph(fs.B,code); if(g) return g; } }
   if(cp>=128 && !fs.B){ // 큰 글꼴이 없으면, 불러온 유니코드 글꼴에서라도 찾기
     for(const f of Object.values(Fonts.shx)){ if(f.kind==='unifont'){ const g=shxGlyph(f,cp); if(g) return g; } } }
