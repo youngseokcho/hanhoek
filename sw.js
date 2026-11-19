@@ -1,5 +1,5 @@
-// 한획 플로터 서비스 워커 (버전 3e742cb9)
-const C='hanhoek-3e742cb9', FILES=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png'];
+// 한획 플로터 서비스 워커 (버전 9eda4fcf)
+const C='hanhoek-9eda4fcf', FILES=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{ e.waitUntil(caches.open(C).then(c=>c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate',e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 // 인터넷이 되면 늘 새 파일, 안 되면 보관본
