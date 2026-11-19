@@ -290,6 +290,8 @@ main.noleft #left, main.noright #right{display:none}
       <div class="tab" id="tSpeed">
         <div class="f">
           <label>그리기 속도<small>mm/분</small></label><input type="number" step="100" min="1" data-k="feedDraw">
+          <label>작은 곡선 감속<small>작은 원·짧은 호에서 천천히</small></label><select data-k="curveSlow"><option value="1">켬</option><option value="0">끔</option></select>
+          <label>곡선 감속 세기<small>mm/s² · 작을수록 더 천천히</small></label><input type="number" step="50" min="10" data-k="curveAcc">
           <label>빈 이동 방식</label><select data-k="travelMode"><option value="G0">G0 최고속</option><option value="G1">G1 아래 속도</option></select>
           <label>빈 이동 속도<small>G1일 때 mm/분</small></label><input type="number" step="100" min="1" data-k="feedTravel">
           <label>조그 속도<small>mm/분</small></label><input type="number" step="100" min="1" data-k="jogFeed">
@@ -345,7 +347,7 @@ const DEFAULTS = {
   feedDraw:1500, travelMode:'G0', feedTravel:1500, jogFeed:1500, zStep:1,
   travelX:1000, travelY:1000, rapid:4000, accelXY:1600, accelZ:2000, junction:0.01,
   pollMs:250, simSpeed:4, arcFit:'1', arcTol:0.02, rxBuf:120, tol:0.1, step:10, hideLeft:false, hideRight:false,
-  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, penW:0.4, showCrowd:false
+  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, penW:0.4, showCrowd:false, curveSlow:'1', curveAcc:300
 };
 const LS_KEY='hanhoek.settings.v2';
 let S = Object.assign({}, DEFAULTS), migrated=false;
@@ -1285,6 +1287,20 @@ const originPaper=()=>[0, S.origin==='bl'?S.paperH:0];
 /* ================= G-code ================= */
 function penUpLines(){ return [`G1Z${f3(S.zUp)}F${S.zFeed}`, `G4P${S.dwellUp}`]; }
 function penDownLines(){ return [`G1Z${f3(zDown())}F${S.zFeed}`, `G4P${S.dwellDown}`]; }
+// 작은 원·짧은 곡선 감속: 원심 가속도 v²/r 이 한도(curveAcc mm/s²)를 넘지 않게 F를 낮춤
+function curveFeeds(start,items){
+  const top=+S.feedDraw||1500, out=new Array(items.length).fill(top);
+  if(S.curveSlow!=='1') return out;
+  const A=Math.max(10,+S.curveAcc||300), fOf=r=>Math.max(300,Math.min(top,Math.round(Math.sqrt(A*r)*60/50)*50));
+  let prev=start; const pts=[start];
+  items.forEach((it,k)=>{ if(it.c) out[k]=fOf(Math.hypot(prev[0]-it.c[0],prev[1]-it.c[1])); prev=it.p; pts.push(it.p); });
+  // 직선 조각으로 된 곡선: 꼭짓점의 꺾임 각 θ와 조각 길이로 반지름 ≈ 길이/θ (45° 넘는 모서리는 기계가 알아서 감속)
+  for(let k=0;k<items.length-1;k++){ if(items[k].c||items[k+1].c) continue;
+    const a=pts[k],b=pts[k+1],c=pts[k+2]; const l1=Math.hypot(b[0]-a[0],b[1]-a[1]), l2=Math.hypot(c[0]-b[0],c[1]-b[1]); if(!l1||!l2) continue;
+    let th=Math.abs(Math.atan2(b[0]-a[0],b[1]-a[1])-Math.atan2(c[0]-b[0],c[1]-b[1])); if(th>Math.PI) th=2*Math.PI-th;
+    if(th<1e-3||th>Math.PI/4) continue; const f=fOf(Math.min(l1,l2)/th); out[k]=Math.min(out[k],f); out[k+1]=Math.min(out[k+1],f); }
+  return out;
+}
 function buildGcode(paths){
   const L=[], meta=[]; const push=(l,pi)=>{ L.push(l); meta.push(pi); };
   push('; 한획 플로터 · '+new Date().toLocaleString('ko-KR')+' · 올림 Z'+S.zUp+' 내림 Z'+zDown(),-1);
@@ -1295,8 +1311,8 @@ function buildGcode(paths){
     penDownLines().forEach(l=>push(l,pi));
     const mp=p.map(q=>toM(q[0],q[1]));
     const items = S.arcFit==='1' ? fitArcs(mp, +S.arcTol||0.02, Math.max(+S.arcTol||0.02, +S.tol||0.1)) : mp.slice(1).map(q=>({p:q}));
-    let prev=mp[0];
-    items.forEach((it,k)=>{ const F=k===0?`F${S.feedDraw}`:'';
+    let prev=mp[0]; const feeds=curveFeeds(mp[0],items); let curF=-1;
+    items.forEach((it,k)=>{ const f=feeds[k]; const F=f!==curF?`F${f}`:''; curF=f;
       if(it.c) push(`${it.cw?'G2':'G3'}X${f3(it.p[0])}Y${f3(it.p[1])}I${f3(it.c[0]-prev[0])}J${f3(it.c[1]-prev[1])}${F}`, pi);
       else push(`G1X${f3(it.p[0])}Y${f3(it.p[1])}${F}`, pi);
       prev=it.p; });
