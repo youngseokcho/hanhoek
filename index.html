@@ -662,7 +662,8 @@ function circle3(a,b,c){
   return [ux,uy,Math.hypot(ax-ux,ay-uy)];
 }
 // pts: 기계 좌표. 결과: [{p}] 직선 또는 [{p,c,cw}] 호
-function fitArcs(pts, tol){
+function fitArcs(pts, tol, sagTol){
+  if(!(sagTol>=tol)) sagTol=tol; // 곡선을 잘게 나눌 때 생긴 처짐(선 정밀도)까지는 원호로 인정
   const n=pts.length, out=[]; let i=0;
   const MAXSTEP=Math.PI/8; // 한 마디 22.5° 넘으면 다각형으로 보고 호로 안 바꿈
   while(i<n-1){
@@ -676,7 +677,7 @@ function fitArcs(pts, tol){
         const dx=pts[k][0]-ux, dy=pts[k][1]-uy;
         if(Math.abs(Math.hypot(dx,dy)-r)>tol){ ok=false; break; }
         const a1=Math.atan2(dy,dx); let da=a1-a0; if(da>Math.PI) da-=2*Math.PI; else if(da<-Math.PI) da+=2*Math.PI; a0=a1;
-        if(Math.abs(da)>MAXSTEP || r*(1-Math.cos(Math.abs(da)/2))>tol){ ok=false; break; }
+        if(Math.abs(da)>MAXSTEP || r*(1-Math.cos(Math.abs(da)/2))>sagTol*1.05){ ok=false; break; }
         const s=Math.sign(da); if(s){ if(dir&&s!==dir){ ok=false; break; } dir=s; }
         sweep+=da;
       }
@@ -1238,7 +1239,7 @@ function buildGcode(paths){
     push(S.travelMode==='G1'?`G1X${f3(sx)}Y${f3(sy)}F${S.feedTravel}`:`G0X${f3(sx)}Y${f3(sy)}`, pi);
     penDownLines().forEach(l=>push(l,pi));
     const mp=p.map(q=>toM(q[0],q[1]));
-    const items = S.arcFit==='1' ? fitArcs(mp, +S.arcTol||0.02) : mp.slice(1).map(q=>({p:q}));
+    const items = S.arcFit==='1' ? fitArcs(mp, +S.arcTol||0.02, Math.max(+S.arcTol||0.02, +S.tol||0.1)) : mp.slice(1).map(q=>({p:q}));
     let prev=mp[0];
     items.forEach((it,k)=>{ const F=k===0?`F${S.feedDraw}`:'';
       if(it.c) push(`${it.cw?'G2':'G3'}X${f3(it.p[0])}Y${f3(it.p[1])}I${f3(it.c[0]-prev[0])}J${f3(it.c[1]-prev[1])}${F}`, pi);
