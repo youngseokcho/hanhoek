@@ -315,6 +315,8 @@ main.noleft #left, main.noright #right{display:none}
           <label>Y 범위 mm</label><input type="number" data-k="travelY">
           <label>최고속 mm/분<small>$110 (G0 속도)</small></label><input type="number" step="100" data-k="rapid">
           <label>XY 가속<small>$120 mm/s²</small></label><input type="number" step="100" data-k="accelXY">
+          <label style="grid-column:1/-1">연결하면 보낼 명령<small>한 줄에 하나 · 기계 설정을 저장하지 않고 연결할 때마다 적용</small></label>
+          <textarea data-k="onConnect" rows="3" spellcheck="false" style="grid-column:1/-1;font:12px ui-monospace,monospace;width:100%;box-sizing:border-box" placeholder="$/axes/x/acceleration_mm_per_sec2=500"></textarea>
           <label>Z 가속<small>$122 mm/s²</small></label><input type="number" step="100" data-k="accelZ">
           <label>모퉁이 감속<small>junction mm</small></label><input type="number" step="0.005" data-k="junction">
           <label>보내기 버퍼<small>바이트, 끊기면 250 시험</small></label><input type="number" step="10" min="60" data-k="rxBuf">
@@ -354,7 +356,7 @@ const DEFAULTS = {
   feedDraw:1500, travelMode:'G0', feedTravel:1500, jogFeed:1500, zStep:1,
   travelX:1000, travelY:1000, rapid:4000, accelXY:1600, accelZ:2000, junction:0.01,
   pollMs:250, simSpeed:4, arcFit:'1', arcTol:0.02, rxBuf:120, tol:0.1, step:10, hideLeft:false, hideRight:false,
-  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, lineW:0.15, penPreset:'ball04', showCrowd:false, slowCurve:'0', curveAcc:300, smooth:'0', smoothTol:0.1
+  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, lineW:0.15, penPreset:'ball04', showCrowd:false, slowCurve:'0', curveAcc:300, smooth:'0', smoothTol:0.1, onConnect:''
 };
 const LS_KEY='hanhoek.settings.v2';
 let S = Object.assign({}, DEFAULTS), migrated=false;
@@ -446,6 +448,17 @@ const M = {
     clearInterval(this.poll); this.poll=setInterval(()=>this.rt('?'), Math.max(100,+S.pollMs||250));
     UI.status(); UI.buttons();
     setTimeout(()=>{ if(this.connected && !this.lastStatusAt) this.write('\n'); }, 1500);
+    if(kind==='serial') this.runOnConnect();
+  },
+  // 연결할 때마다 보낼 명령(기계 설정을 저장하지 않고 매번 적용) — 기계가 응답하기 시작한 뒤 한 줄씩
+  async runOnConnect(){
+    const lines=String(S.onConnect||'').split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !l.startsWith(';'));
+    if(!lines.length) return;
+    const t0=Date.now(); while(this.connected && !this.lastStatusAt && Date.now()-t0<5000) await new Promise(r=>setTimeout(r,200));
+    if(!this.connected) return;
+    log('sy','연결 시 명령 '+lines.length+'줄 보냄');
+    for(const l of lines){ if(!this.connected) return; try{ await this.send(l); }catch(e){}
+      const m=/^\$\/axes\/x\/acceleration_mm_per_sec2=([\d.]+)/i.exec(l); if(m){ S.accelXY=+m[1]; saveS(); bindForm(); } }
   },
   async disconnect(){
     clearInterval(this.poll); this.poll=null;
