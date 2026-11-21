@@ -247,6 +247,10 @@ main.noleft #left, main.noright #right{display:none}
         <div class="sep"></div>
         <div id="boundsMsg"></div>
         <div id="paperAdv" style="font-size:12px;margin-top:6px"></div>
+        <div class="f" style="margin-top:6px">
+          <label>들쭉날쭉한 선 다듬기<small>켜면 빨강=원본, 검정=다듬은 선</small></label><select data-k="smooth"><option value="0">끔</option><option value="1">켬</option></select>
+          <label>다듬기 최대 거리<small>용지 위 mm · 원본에서 이만큼만</small></label><input type="number" step="0.05" min="0.01" data-k="smoothTol">
+        </div>
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">정리 <span style="font-weight:500">레이어·색별 켜고 끄기</span></h3>
         <div id="groupList" style="max-height:150px;overflow:auto;font-size:12px"></div>
@@ -275,7 +279,10 @@ main.noleft #left, main.noright #right{display:none}
       <div class="tab" id="tPen">
         <div class="tip">🪙 <b>동전 영점 방식</b><br>종이 위에 동전을 놓고, Z−로 펜 끝이 동전에 막 닿게 한 뒤 <b>Z 영점(동전)</b>을 누릅니다. 동전을 치우면 고무가 펜을 종이까지 내려 줍니다. 그래서 내림은 Z0, 올림은 동전 두께와 고무 늘어남보다 충분히 높게(Z5) 둡니다.</div>
         <div class="f" style="margin-top:8px">
-          <label>펜 굵기 mm<small>용지 추천 기준</small></label><input type="number" step="0.05" min="0.05" data-k="penW">
+          <label>펜 종류<small>실제 선 굵기를 채워 줌</small></label><select data-k="penPreset" id="penPreset">
+            <option value="ball04">볼펜 0.4 (쥬스업 등) ≈0.15</option><option value="ball05">볼펜 0.5 ≈0.2</option><option value="ball07">볼펜 0.7 ≈0.3</option>
+            <option value="gel038">젤펜 0.38 ≈0.2</option><option value="liner03">수성 파인라이너 0.3 ≈0.3</option><option value="tech04">제도펜·사인펜 0.4 ≈0.4</option><option value="custom">직접 입력</option></select>
+          <label>실제 선 굵기 mm<small>종이에 그어진 굵기 · 용지 추천 기준</small></label><input type="number" step="0.01" min="0.03" data-k="lineW">
           <label>펜 올림 Z<small>이동 중 끌리면 키우기</small></label><input type="number" step="0.5" data-k="zUp">
           <label>펜 내림 Z<small>동전 영점이면 0</small></label><input type="number" step="0.1" data-k="zContact">
           <label>더 누르기 mm<small>흐리게 그려지면 0.3~1</small></label><input type="number" step="0.1" min="0" data-k="zExtra">
@@ -290,7 +297,7 @@ main.noleft #left, main.noright #right{display:none}
       <div class="tab" id="tSpeed">
         <div class="f">
           <label>그리기 속도<small>mm/분</small></label><input type="number" step="100" min="1" data-k="feedDraw">
-          <label>작은 곡선 감속<small>작은 원·짧은 호에서 천천히</small></label><select data-k="curveSlow"><option value="1">켬</option><option value="0">끔</option></select>
+          <label>작은 곡선 감속<small>작은 원·짧은 호에서 천천히</small></label><select data-k="slowCurve"><option value="0">끔</option><option value="1">켬</option></select>
           <label>곡선 감속 세기<small>mm/s² · 작을수록 더 천천히</small></label><input type="number" step="50" min="10" data-k="curveAcc">
           <label>빈 이동 방식</label><select data-k="travelMode"><option value="G0">G0 최고속</option><option value="G1">G1 아래 속도</option></select>
           <label>빈 이동 속도<small>G1일 때 mm/분</small></label><input type="number" step="100" min="1" data-k="feedTravel">
@@ -347,7 +354,7 @@ const DEFAULTS = {
   feedDraw:1500, travelMode:'G0', feedTravel:1500, jogFeed:1500, zStep:1,
   travelX:1000, travelY:1000, rapid:4000, accelXY:1600, accelZ:2000, junction:0.01,
   pollMs:250, simSpeed:4, arcFit:'1', arcTol:0.02, rxBuf:120, tol:0.1, step:10, hideLeft:false, hideRight:false,
-  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, penW:0.4, showCrowd:false, curveSlow:'1', curveAcc:300
+  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, lineW:0.15, penPreset:'ball04', showCrowd:false, slowCurve:'0', curveAcc:300, smooth:'0', smoothTol:0.1
 };
 const LS_KEY='hanhoek.settings.v2';
 let S = Object.assign({}, DEFAULTS), migrated=false;
@@ -1189,15 +1196,19 @@ function detailInfo(o){
 // 길이 비율 q 지점의 간격
 function gapAt(r,q){ let acc=0; const lim=q*r.total; for(const [d,w] of r.gaps){ acc+=w; if(acc>=lim) return d; } return Infinity; }
 function shapeAt(r,q){ if(!r.shapes.length) return Infinity; return r.shapes[Math.min(r.shapes.length-1,Math.floor(q*r.shapes.length))]; }
-function crowdedShare(r,scale,w){ const thr=1.25*w/scale; let acc=0; for(const [d,wt] of r.gaps){ if(d>=thr) break; acc+=wt; } return acc/r.total; }
+const crowdGap=w=>w*1.2;   // 선 중심 간격이 실제 선 굵기의 1.2배(잉크 번짐 감안) 미만이면 붙어 보임
+function crowdedShare(r,scale,w){ const thr=crowdGap(w)/scale; let acc=0; for(const [d,wt] of r.gaps){ if(d>=thr) break; acc+=wt; } return acc/r.total; }
 function paperFor(W,H){ const m=10; for(const [n,pw,ph] of PAPERS){ if(W+2*m<=pw&&H+2*m<=ph) return {n,w:pw,h:ph,rot:'세로'}; if(W+2*m<=ph&&H+2*m<=pw) return {n,w:ph,h:pw,rot:'가로'}; } return null; }
 function paperAdvice(o){
-  const r=detailInfo(o), w=+S.penW||0.4;
-  const need=(q,k)=>{ const g=gapAt(r,q); return g<Infinity? k*w/g : 0; };
-  // 최소: 그리는 길이의 5%까지만 붙어 보임(간격<1.25w) 허용 / 적정: 2%까지만 간격<2w
-  const sMin=need(0.05,1.25), sOk=need(0.02,2);
-  const mk=s=>{ if(!(s>0)||!isFinite(s)) return {scale:0,W:0,H:0,paper:paperFor(0,0)}; const W=o.w0*s,H=o.h0*s; return {scale:s,W,H,paper:paperFor(W,H)}; };
-  return {min:mk(sMin), ok:mk(sOk), now:crowdedShare(r,o.scale,w), w};
+  const r=detailInfo(o), w=+S.lineW||0.15;
+  // 흔히 쓰는 A5·A4·A3에 맞췄을 때(여백 10mm) 붙어 보이는 비율
+  const sizes=[['A5',148,210],['A4',210,297],['A3',297,420]].map(([n,a,b])=>{
+    const m=10, s1=Math.min((a-2*m)/o.w0,(b-2*m)/o.h0), s2=Math.min((b-2*m)/o.w0,(a-2*m)/o.h0);
+    const land=s2>s1, sc=Math.max(s1,s2), share=crowdedShare(r,sc,w);
+    return {n, rot:land?'가로':'세로', w:land?b:a, h:land?a:b, W:o.w0*sc, H:o.h0*sc, share};
+  });
+  const good=sizes.find(x=>x.share<0.03), okay=sizes.filter(x=>x.share<0.08).pop();   // 깔끔한 가장 작은 용지, 없으면 덜 붙는 큰 용지
+  return {sizes, best:good||okay||null, bestKind:good?'good':okay?'okay':'none', now:crowdedShare(r,o.scale,w), w};
 }
 function applyPaper(p,o){ S.paperW=p.w; S.paperH=p.h; saveS(); bindForm(); fitToPaper(); }
 
@@ -1279,7 +1290,36 @@ function objCache(o){
 }
 const placeXY=(o,x,y)=>[o.x+x*o.scale, o.y+y*o.scale];
 function objBox(o){ return [o.x,o.y,o.x+o.w0*o.scale,o.y+o.h0*o.scale]; }
-function placedPaths(){ const o=activeObj(); if(!o) return []; const s=o.scale, ox=o.x, oy=o.y; return o.paths.map(p=>p.map(q=>[ox+q[0]*s, oy+q[1]*s])); }
+/* ================= 들쭉날쭉한 선 다듬기 =================
+   용지 위 mm 기준(그림 단위 아님). 꼭짓점마다 원래 자리에서 tol mm 안에서만 움직이므로
+   다듬은 선과 원래 선의 차이는 어디서나 tol 이하. 진짜 모서리(앞뒤 1mm 방향이 50° 넘게 꺾임)와 끝점은 고정. */
+function smoothPath(p, tol, sig){
+  const n=p.length; if(n<4) return p;
+  const L=[0]; for(let i=1;i<n;i++) L.push(L[i-1]+Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]));
+  const span=Math.max(2*sig,0.5), fixed=new Uint8Array(n); fixed[0]=fixed[n-1]=1;
+  const at=(i,d)=>{ let j=i; if(d<0){ while(j>0 && L[i]-L[j]<span) j--; } else { while(j<n-1 && L[j]-L[i]<span) j++; } return p[j]; };
+  for(let i=1;i<n-1;i++){ const a=at(i,-1), c=at(i,1), b=p[i];
+    const u=[b[0]-a[0],b[1]-a[1]], v=[c[0]-b[0],c[1]-b[1]], lu=Math.hypot(u[0],u[1]), lv=Math.hypot(v[0],v[1]);
+    if(lu<1e-9||lv<1e-9) continue; const cos=(u[0]*v[0]+u[1]*v[1])/(lu*lv); if(cos<Math.cos(50*Math.PI/180)) fixed[i]=1; }
+  // 고정점 바로 옆 점들이 고정점 근처로 몰린 경우를 피하려고, 고정점끼리 너무 가까우면 하나로 봄(필요 없음: 고정점은 움직이지 않음)
+  const out=p.map(q=>q.slice()); const W=3*sig, k2=1/(2*sig*sig);
+  for(let i=1;i<n-1;i++){ if(fixed[i]) continue;
+    let sx=0,sy=0,sw=0;
+    for(let j=i;j>=0;j--){ const d=L[i]-L[j]; if(d>W) break; const w=Math.exp(-d*d*k2); sx+=p[j][0]*w; sy+=p[j][1]*w; sw+=w; if(fixed[j]) break; }
+    for(let j=i+1;j<n;j++){ const d=L[j]-L[i]; if(d>W) break; const w=Math.exp(-d*d*k2); sx+=p[j][0]*w; sy+=p[j][1]*w; sw+=w; if(fixed[j]) break; }
+    let x=sx/sw, y=sy/sw; const dx=x-p[i][0], dy=y-p[i][1], dd=Math.hypot(dx,dy);
+    if(dd>tol){ x=p[i][0]+dx*tol/dd; y=p[i][1]+dy*tol/dd; }
+    out[i]=[x,y]; }
+  return out;
+}
+// o.paths(그림 단위)를 다듬은 결과 — 용지 mm 기준 허용 오차를 그림 단위로 바꿔 계산, 배율이 바뀌면 다시 계산
+function smoothedSrc(o){
+  const c=o.cache, tol=Math.max(0.01,+S.smoothTol||0.1), key=o.scale+'|'+tol;
+  if(c.smKey!==key){ const s=o.scale; c.sm=o.paths.map(p=>smoothPath(p, tol/s, Math.max(tol*4,0.3)/s)); c.smKey=key; c.smP2D=null; }
+  return c.sm;
+}
+function drawPaths(o){ return S.smooth==='1' ? smoothedSrc(o) : o.paths; }
+function placedPaths(){ const o=activeObj(); if(!o) return []; const s=o.scale, ox=o.x, oy=o.y; return drawPaths(o).map(p=>p.map(q=>[ox+q[0]*s, oy+q[1]*s])); }
 const toM = (x,y) => S.origin==='bl' ? [x, S.paperH-y] : [x, -y];
 const fromM = (x,y) => S.origin==='bl' ? [x, S.paperH-y] : [x, -y];
 const originPaper=()=>[0, S.origin==='bl'?S.paperH:0];
@@ -1290,7 +1330,7 @@ function penDownLines(){ return [`G1Z${f3(zDown())}F${S.zFeed}`, `G4P${S.dwellDo
 // 작은 원·짧은 곡선 감속: 원심 가속도 v²/r 이 한도(curveAcc mm/s²)를 넘지 않게 F를 낮춤
 function curveFeeds(start,items){
   const top=+S.feedDraw||1500, out=new Array(items.length).fill(top);
-  if(S.curveSlow!=='1') return out;
+  if(S.slowCurve!=='1') return out;
   const A=Math.max(10,+S.curveAcc||300), fOf=r=>Math.max(300,Math.min(top,Math.round(Math.sqrt(A*r)*60/50)*50));
   let prev=start; const pts=[start];
   items.forEach((it,k)=>{ if(it.c) out[k]=fOf(Math.hypot(prev[0]-it.c[0],prev[1]-it.c[1])); prev=it.p; pts.push(it.p); });
@@ -1500,15 +1540,18 @@ const UI = {
   advice(o){
     const el=$('#paperAdv'); if(!o){ el.innerHTML=''; return; }
     let a; try{ a=paperAdvice(o); }catch(e){ el.innerHTML=''; console.warn(e); return; }
-    const row=(t,x,id)=>{ if(!x.scale) return `<div><span>${t}</span><b>어떤 크기든 괜찮음</b></div>`;
-      const p=x.paper; return `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:2px 0"><span style="white-space:nowrap">${t}</span><span style="text-align:right"><b>${p?p.n+' '+p.rot:'A0보다 큼'}</b> <span class="muted">그림 ${fmt(x.W,0)}×${fmt(x.H,0)}</span>${p?` <button class="btn sm" id="${id}" style="padding:1px 6px">이 용지로</button>`:''}</span></div>`; };
-    const pct=a.now*100, cls=pct<0.5?'ok':pct<3?'warn':'bad';
-    const over=x=>x.paper&&(x.paper.w>S.travelX||x.paper.h>S.travelY);
-    el.innerHTML=`<div style="color:var(--muted);margin-bottom:2px">용지 추천 <span>(펜 ${a.w}mm 기준)</span></div>${row('최소',a.min,'bPapMin')}${row('적정',a.ok,'bPapOk')}
-      <div style="margin-top:3px"><span class="badge ${cls}">지금 크기: 선이 붙어 보이는 곳 ${pct<0.1?'거의 없음':'약 '+fmt(pct,pct<10?1:0)+'%'}</span></div>
-      ${over(a.ok)||over(a.min)?'<div class="muted">기계 이동 범위('+S.travelX+'mm)보다 큰 용지는 나눠 그려야 합니다.</div>':''}
+    const lab=x=>x<0.03?['ok','깔끔']:x<0.08?['warn','조금 붙음']:['bad','많이 붙음'];
+    const rows=a.sizes.map(x=>{ const [c,t]=lab(x.share), best=a.best&&a.best.n===x.n;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin:2px 0">
+        <span style="white-space:nowrap">${best?'👉 ':''}<b>${x.n}</b> ${x.rot}</span>
+        <span style="text-align:right"><span class="badge ${c}">${t}${x.share>=0.001?' '+fmt(x.share*100,x.share<0.1?1:0)+'%':''}</span>
+        <button class="btn sm" data-pap="${x.n}" style="padding:1px 6px">이 용지로</button></span></div>`; }).join('');
+    const pct=a.now*100, cls=pct<3?'ok':pct<8?'warn':'bad';
+    el.innerHTML=`<div style="color:var(--muted);margin-bottom:2px">용지 추천 <span>(실제 선 ${a.w}mm 기준 · 펜 탭에서 바꿈)</span></div>${rows}
+      ${a.bestKind==='none'?'<div class="muted">A3에서도 촘촘한 곳이 많아요. 빨간 곳을 지우개로 정리하거나 더 가는 펜을 쓰세요.</div>':''}
+      <div style="margin-top:3px"><span class="badge ${cls}">지금 크기: 붙어 보이는 곳 ${pct<0.1?'거의 없음':'약 '+fmt(pct,pct<10?1:0)+'%'}</span></div>
       <label style="display:flex;gap:5px;align-items:center;margin-top:4px"><input type="checkbox" id="cCrowd" ${S.showCrowd?'checked':''}> 붙어 보이는 곳 표시 <span style="color:var(--bad)">● 빨강</span></label>`;
-    const bm=$('#bPapMin'), bo=$('#bPapOk'); if(bm) bm.onclick=()=>applyPaper(a.min.paper,o); if(bo) bo.onclick=()=>applyPaper(a.ok.paper,o);
+    el.querySelectorAll('[data-pap]').forEach(b=>b.onclick=()=>{ const x=a.sizes.find(z=>z.n===b.dataset.pap); applyPaper(x,o); });
     $('#cCrowd').onchange=e=>{ S.showCrowd=e.target.checked; saveS(); draw(); };
   },
   obj(light){
@@ -1583,8 +1626,11 @@ function drawNow(){
     ctx.lineJoin='round'; ctx.lineCap='round';
     if(showTravel){ ctx.strokeStyle=COL['--travel']; ctx.globalAlpha=.6; ctx.lineWidth=1/k; ctx.stroke(c.travel); ctx.globalAlpha=1; }
     ctx.strokeStyle=COL['--path']; ctx.globalAlpha=Job.doneP2D?.45:1; ctx.lineWidth=1/k;   // 화면에서 늘 1px
-    ctx.stroke(c.p2d); ctx.globalAlpha=1;
-    if(S.showCrowd && c.detail){ const thr=1.25*(+S.penW||0.4)/s, M=c.detail.marks; ctx.fillStyle=COL['--bad']; ctx.globalAlpha=.55; ctx.beginPath(); const r=Math.max(0.6*(+S.penW||0.4)/s, 2.5/k);
+    if(S.smooth==='1'){ const sm=smoothedSrc(o); if(!c.smP2D){ const P=new Path2D(); for(const p of sm){ P.moveTo(p[0][0],p[0][1]); for(let j=1;j<p.length;j++) P.lineTo(p[j][0],p[j][1]); } c.smP2D=P; }
+      ctx.strokeStyle=COL['--bad']; ctx.globalAlpha=.45; ctx.lineWidth=2.2/k; ctx.stroke(c.p2d); ctx.globalAlpha=1; ctx.strokeStyle=COL['--path']; ctx.lineWidth=1/k; ctx.stroke(c.smP2D); }
+    else ctx.stroke(c.p2d);
+    ctx.globalAlpha=1;
+    if(S.showCrowd && c.detail){ const thr=crowdGap(+S.lineW||0.15)/s, M=c.detail.marks; ctx.fillStyle=COL['--bad']; ctx.globalAlpha=.55; ctx.beginPath(); const r=Math.max(0.6*(+S.lineW||0.15)/s, 2.5/k);
       for(let i=0;i<M.length;i+=3){ if(M[i+2]<thr){ ctx.moveTo(M[i]+r,M[i+1]); ctx.arc(M[i],M[i+1],r,0,Math.PI*2); } } ctx.fill(); ctx.globalAlpha=1; }
     if(S.showDel && c.delN){ ctx.save(); ctx.translate(-o.mx,-o.my); ctx.strokeStyle=COL['--bad']; ctx.globalAlpha=.85; ctx.lineWidth=1.2/k; ctx.setLineDash([4/k,3/k]); ctx.stroke(c.delP); ctx.restore(); }
     if(previewDel && previewDel.length){ ctx.save(); ctx.translate(-o.mx,-o.my); ctx.strokeStyle=COL['--bad']; ctx.lineWidth=2.5/k; ctx.beginPath(); for(const it of previewDel){ const p=it.p; ctx.moveTo(p[0][0],p[0][1]); if(p.length===1) ctx.lineTo(p[0][0]+0.01,p[0][1]); for(let j=1;j<p.length;j++) ctx.lineTo(p[j][0],p[j][1]); } ctx.stroke();
@@ -1796,6 +1842,9 @@ $$('[data-k]').forEach(el=>el.addEventListener('change',()=>{
   if(k==='zUp' && v<=zDown()+0.5){ toast('펜 올림은 내림보다 충분히 높아야 합니다'); el.value=S[k]; return; }
   S[k]=v; saveS(); bindForm(); UI.obj();
 }));
+const PEN_W={ball04:0.15,ball05:0.2,ball07:0.3,gel038:0.2,liner03:0.3,tech04:0.4};
+$('#penPreset').addEventListener('change',e=>{ const v=PEN_W[e.target.value]; if(v){ S.lineW=v; saveS(); bindForm(); UI.obj(); } });
+document.querySelector('[data-k="lineW"]').addEventListener('change',()=>{ if(PEN_W[S.penPreset]!==S.lineW){ S.penPreset='custom'; saveS(); bindForm(); } });
 $('#paperSel').onchange=e=>{ if(e.target.value==='custom') return; const [w,h]=e.target.value.split('x').map(Number); S.paperW=w; S.paperH=h; saveS(); bindForm(); UI.obj(); fitView(); };
 $('#bDefaults').onclick=async()=>{ if(!await modal('펜·속도를 기본값으로?','<p>올림 Z5, 내림 Z0, 더 누르기 0, 속도 1500, 대기 0.1초로 돌아갑니다.</p>',[['취소',false],['되돌리기',true,'pri']])) return; ['zUp','zContact','zExtra','zFeed','dwellDown','dwellUp','feedDraw','travelMode','feedTravel','jogFeed','zStep'].forEach(k=>S[k]=DEFAULTS[k]); saveS(); bindForm(); UI.obj(); };
 $('#conHead').onclick=()=>{ const op=$('#console').classList.toggle('open'); $('#conArrow').textContent=op?'▾':'▸'; logEl.scrollTop=logEl.scrollHeight; };
