@@ -265,6 +265,7 @@ main.noleft #left, main.noright #right{display:none}
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">글자 <span style="font-weight:500">단선(한 줄) 글꼴로 그리기</span></h3>
         <label style="display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="cText"> 글자·치수 숫자 그리기</label>
+        <label style="display:flex;gap:5px;align-items:center;font-size:12px" title="DXF는 치수(DIMENSION), PDF·SVG는 화살촉이 붙은 곧은 선과 보조선을 자동으로 찾아 '치수' 묶음에 넣습니다. 지우지 않고 켜고 끄기만 합니다."><input type="checkbox" id="cDim"> 치수선·화살표 그리기 <span class="muted">(끄면 그림만)</span></label>
         <div class="f" style="margin-top:4px">
           <label>영문·숫자<small>DXF 기본</small></label><select id="selMain"></select>
           <label>한글 큰 글꼴<small>DXF 기본</small></label><select id="selBig"></select>
@@ -316,7 +317,8 @@ main.noleft #left, main.noright #right{display:none}
           <label>최고속 mm/분<small>$110 (G0 속도)</small></label><input type="number" step="100" data-k="rapid">
           <label>XY 가속<small>$120 mm/s²</small></label><input type="number" step="100" data-k="accelXY">
           <label style="grid-column:1/-1">연결하면 보낼 명령<small>한 줄에 하나 · 기계 설정을 저장하지 않고 연결할 때마다 적용</small></label>
-          <textarea data-k="onConnect" rows="3" spellcheck="false" style="grid-column:1/-1;font:12px ui-monospace,monospace;width:100%;box-sizing:border-box" placeholder="$/axes/x/acceleration_mm_per_sec2=500"></textarea>
+          <textarea data-k="onConnect" rows="3" spellcheck="false" style="grid-column:1/-1;font:12px ui-monospace,monospace;width:100%;box-sizing:border-box" placeholder="(비어 있음) 아래 버튼을 누르거나 명령을 붙여 넣으세요"></textarea>
+          <button class="btn sm" id="bAccel500" style="grid-column:1/-1">가속도 500 두 줄 넣기</button>
           <label>Z 가속<small>$122 mm/s²</small></label><input type="number" step="100" data-k="accelZ">
           <label>모퉁이 감속<small>junction mm</small></label><input type="number" step="0.005" data-k="junction">
           <label>보내기 버퍼<small>바이트, 끊기면 250 시험</small></label><input type="number" step="10" min="60" data-k="rxBuf">
@@ -356,7 +358,7 @@ const DEFAULTS = {
   feedDraw:1500, travelMode:'G0', feedTravel:1500, jogFeed:1500, zStep:1,
   travelX:1000, travelY:1000, rapid:4000, accelXY:1600, accelZ:2000, junction:0.01,
   pollMs:250, simSpeed:4, arcFit:'1', arcTol:0.02, rxBuf:120, tol:0.1, step:10, hideLeft:false, hideRight:false,
-  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, showDel:true, lineW:0.15, penPreset:'ball04', showCrowd:false, slowCurve:'0', curveAcc:300, smooth:'0', smoothTol:0.1, onConnect:''
+  txtMain:'romans', txtBig:'whgtxt', pdfMain:'@simplex', pdfBig:'whgtxt', drawText:true, drawDim:true, showDel:true, lineW:0.15, penPreset:'ball04', showCrowd:false, slowCurve:'0', curveAcc:300, smooth:'0', smoothTol:0.1, onConnect:''
 };
 const LS_KEY='hanhoek.settings.v2';
 let S = Object.assign({}, DEFAULTS), migrated=false;
@@ -603,7 +605,8 @@ function parseSVG(text){
       if(subs.broken) broken++;
       }catch(e){ broken++; }
     }
-    return {paths, gnames, unitNote, texts, uses, skipped, broken};
+    const nDim=findDims(paths,gnames);
+    return {paths, gnames, unitNote:unitNote+(nDim?` · 치수선·화살표 ${nDim}개 찾음`:''), texts, uses, skipped, broken};
   } finally { holder.remove(); }
 }
 function num(el,a){ return parseFloat(el.getAttribute(a))||0; }
@@ -962,8 +965,8 @@ function parseDXF(text){
     const a0=Math.atan2(p1[1]-cy,p1[0]-cx), n=arcSteps(R,th);
     for(let s=1;s<n;s++){ const a=a0+th*s/n; out.push([cx+R*Math.cos(a),cy+R*Math.sin(a)]); } out.push(p2);
   };
-  let broken=0, curLayer='0'; const gnames=[]; const textByLayer={};
-  const emit=(m,pts,ocsFlip,gn)=>{ const q2=pts.map(p=>{ const q=ap(m,ocsFlip?[-p[0],p[1]]:p); return [q[0]*k,-q[1]*k]; }).filter(q=>isFinite(q[0])&&isFinite(q[1])&&Math.abs(q[0])<1e9&&Math.abs(q[1])<1e9); if(q2.length>1){ paths.push(q2); gnames.push(gn||('레이어 '+curLayer)); } else if(!gn) broken++; };
+  let broken=0, curLayer='0', inDim=0; const gnames=[]; const textByLayer={};
+  const emit=(m,pts,ocsFlip,gn)=>{ const q2=pts.map(p=>{ const q=ap(m,ocsFlip?[-p[0],p[1]]:p); return [q[0]*k,-q[1]*k]; }).filter(q=>isFinite(q[0])&&isFinite(q[1])&&Math.abs(q[0])<1e9&&Math.abs(q[1])<1e9); if(q2.length>1){ paths.push(q2); gnames.push(gn||((inDim?'치수 · ':'')+'레이어 '+curLayer)); } else if(!gn) broken++; };
   // 글자 스타일 (STYLE 표): 3=글꼴 파일, 4=큰 글꼴, 40=고정 높이, 41=폭 비율, 50=기울기
   const styles={}; for(const st of styleEnts){ styles[(getS(st,2)||'').toUpperCase()]={font:getS(st,3), big:getS(st,4), h:get(st,40,0), wf:get(st,41,1)||1, obl:get(st,50,0)}; }
   const TI={n:0, miss:0, hangulMiss:0, wanted:new Set()};
@@ -1048,7 +1051,7 @@ function parseDXF(text){
           else { const ix=get(e,10,0), iy=get(e,20,0), sx=get(e,41,1), sy=get(e,42,1), rot=get(e,50,0)*Math.PI/180, c=Math.cos(rot), s=Math.sin(rot);
             const T=[c*sx, s*sx, -s*sy, c*sy, ix, iy]; const B=[1,0,0,1,-b.base[0],-b.base[1]];
             M=mul(m,mul(T,B)); if(flip) M=mul(M,[-1,0,0,1,0,0]); }
-          walk(b.ents,M,depth+1,curLayer); break; }
+          if(e.type==='DIMENSION'){ inDim++; try{ walk(b.ents,M,depth+1,curLayer); } finally { inDim--; } } else walk(b.ents,M,depth+1,curLayer); break; }
         case 'TEXT': case 'ATTRIB': drawTEXT(e,m,flip); break;
         case 'MTEXT': drawMTEXT(e,m,flip); break;
         case 'HATCH': case 'SOLID': case 'POINT': case 'ATTDEF': case 'VIEWPORT':
@@ -1073,37 +1076,134 @@ function loadPdfJs(){
     sc.onerror=()=>rej(new Error('PDF 읽기 도구를 불러오지 못했습니다')); document.head.appendChild(sc); });
   return pdfReady;
 }
+/* PDF 클리핑 코어 (hanhoek-pdf-clip.js에서 가져옴): 사각형은 Liang–Barsky, 그 밖의 모양은 교점으로 쪼개 안쪽 판정.
+   점열은 평평한 배열 [x,y,x,y,…]. 좌표계와 상관없이 같은 좌표에서 만든 클립이면 됨. */
+const PDFCLIP=(()=>{
+  const EPS=1e-9;
+  function asAxisRect(ring){ let pts=ring.slice();
+    if(pts.length>=10 && Math.abs(pts[0]-pts[pts.length-2])<1e-6 && Math.abs(pts[1]-pts[pts.length-1])<1e-6) pts=pts.slice(0,-2);
+    if(pts.length!==8) return null; const xs=[pts[0],pts[2],pts[4],pts[6]], ys=[pts[1],pts[3],pts[5],pts[7]];
+    for(let i=0;i<4;i++){ const j=(i+1)%4; if(Math.abs(xs[i]-xs[j])>1e-6 && Math.abs(ys[i]-ys[j])>1e-6) return null; }
+    return {x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)}; }
+  function makeClip(rings, evenOdd){ const rs=rings.filter(r=>r.length>=6); if(!rs.length) return {type:'empty'};
+    if(rs.length===1){ const rect=asAxisRect(rs[0]); if(rect) return {type:'rect',...rect}; }
+    let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+    for(const r of rs) for(let i=0;i<r.length;i+=2){ x0=Math.min(x0,r[i]); x1=Math.max(x1,r[i]); y0=Math.min(y0,r[i+1]); y1=Math.max(y1,r[i+1]); }
+    return {type:'poly',rings:rs,evenOdd:!!evenOdd,bbox:{x0,y0,x1,y1}}; }
+  function insidePoly(c,x,y){ const b=c.bbox; if(x<b.x0||x>b.x1||y<b.y0||y>b.y1) return false; let wind=0,cross=0;
+    for(const r of c.rings){ const n=r.length/2; for(let i=0,j=n-1;i<n;j=i++){ const xi=r[2*i],yi=r[2*i+1],xj=r[2*j],yj=r[2*j+1];
+      if((yi>y)!==(yj>y)){ const xc=xj+(y-yj)*(xi-xj)/(yi-yj); if(x<xc){ cross++; wind+=yi>yj?1:-1; } } } }
+    return c.evenOdd?(cross&1)===1:wind!==0; }
+  function inside(c,x,y){ if(c.type==='empty') return false; if(c.type==='rect') return x>=c.x0&&x<=c.x1&&y>=c.y0&&y<=c.y1; return insidePoly(c,x,y); }
+  function segIv(c,ax,ay,bx,by){
+    if(c.type==='rect'){ let t0=0,t1=1; const dx=bx-ax,dy=by-ay; const p=[-dx,dx,-dy,dy], q=[ax-c.x0,c.x1-ax,ay-c.y0,c.y1-ay];
+      for(let k=0;k<4;k++){ if(Math.abs(p[k])<EPS){ if(q[k]<0) return []; } else { const t=q[k]/p[k]; if(p[k]<0){ if(t>t1) return []; if(t>t0) t0=t; } else { if(t<t0) return []; if(t<t1) t1=t; } } }
+      return t1-t0>EPS?[[t0,t1]]:[]; }
+    const b=c.bbox; if(Math.max(ax,bx)<b.x0||Math.min(ax,bx)>b.x1||Math.max(ay,by)<b.y0||Math.min(ay,by)>b.y1) return [];
+    const ts=[0,1], dx=bx-ax, dy=by-ay;
+    for(const r of c.rings){ const n=r.length/2; for(let i=0,j=n-1;i<n;j=i++){ const cx=r[2*j],cy=r[2*j+1],ex=r[2*i]-cx,ey=r[2*i+1]-cy;
+      const den=dx*ey-dy*ex; if(Math.abs(den)<EPS) continue; const t=((cx-ax)*ey-(cy-ay)*ex)/den, u=((cx-ax)*dy-(cy-ay)*dx)/den;
+      if(t>EPS&&t<1-EPS&&u>=-EPS&&u<=1+EPS) ts.push(t); } }
+    ts.sort((a,b)=>a-b); const out=[];
+    for(let k=0;k<ts.length-1;k++){ const t0=ts[k],t1=ts[k+1]; if(t1-t0<EPS) continue; const tm=(t0+t1)/2;
+      if(insidePoly(c,ax+dx*tm,ay+dy*tm)){ if(out.length&&Math.abs(out[out.length-1][1]-t0)<EPS) out[out.length-1][1]=t1; else out.push([t0,t1]); } }
+    return out; }
+  function clipOne(pts,c){ const runs=[]; let cur=null;
+    for(let i=0;i+3<pts.length;i+=2){ const ax=pts[i],ay=pts[i+1],bx=pts[i+2],by=pts[i+3]; const iv=segIv(c,ax,ay,bx,by);
+      for(const [t0,t1] of iv){ const sx=ax+(bx-ax)*t0, sy=ay+(by-ay)*t0, ex=ax+(bx-ax)*t1, ey=ay+(by-ay)*t1;
+        if(cur && t0<EPS && Math.abs(cur[cur.length-2]-sx)<1e-7 && Math.abs(cur[cur.length-1]-sy)<1e-7) cur.push(ex,ey);
+        else { if(cur&&cur.length>=4) runs.push(cur); cur=[sx,sy,ex,ey]; }
+        if(t1<1-EPS){ runs.push(cur); cur=null; } }
+      if(!iv.length&&cur){ runs.push(cur); cur=null; } }
+    if(cur&&cur.length>=4) runs.push(cur); return runs; }
+  function clipPolylineByRegion(pts,clips){ let parts=[pts];
+    for(const c of clips){ if(c.type==='empty') return []; const next=[]; for(const p of parts) next.push(...clipOne(p,c)); parts=next; if(!parts.length) break; }
+    return parts; }
+  return {makeClip, clipPolylineByRegion, inside};
+})();
+
 async function parsePDF(buf, askPage){
   const lib=await loadPdfJs(); const OPS=lib.OPS;
   const doc=await lib.getDocument({data:buf, isEvalSupported:false}).promise;
   let pn=1; if(doc.numPages>1) pn=await askPage(doc.numPages); if(!pn) return null;
   const page=await doc.getPage(pn); const vp=page.getViewport({scale:1}); const VT=vp.transform;
   const ol=await page.getOperatorList();
+  let oc=null; try{ oc=await doc.getOptionalContentConfig(); }catch(e){ oc=null; }
   const K=25.4/72, tol=Math.max(S.tol,0.02);
   const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
-  let ctm=[1,0,0,1,0,0]; const stack=[]; let cur=[], sub=null, fill='#000000', stroke='#000000'; const fillStack=[]; const gnames=[];
-  const paths=[]; let skippedWhite=0;
-  const P=(x,y)=>{ const m=mul(VT,ctm); return [(m[0]*x+m[2]*y+m[4])*K,(m[1]*x+m[3]*y+m[5])*K]; };
+  const hex=a=>typeof a[0]==='string'?a[0]:'#'+Array.from(a).slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); // pdf.js 3.x는 Uint8ClampedArray로 줌 → 배열로 바꿔야 흰색 판정이 됨
+  const isWhite=h=>{ if(!/^#[0-9a-f]{6}$/i.test(h)) return false; const v=parseInt(h.slice(1),16); return (v>>16&255)>=250&&(v>>8&255)>=250&&(v&255)>=250; };
+  // 그래픽 상태: q/Q로 통째로 저장·복원 (CTM·채움색·선색·클립)
+  let gs={ctm:[1,0,0,1,0,0], fill:'#000000', stroke:'#000000', clips:[]}; const stack=[];
+  const save=()=>stack.push({...gs, ctm:gs.ctm.slice()});
+  const restore=()=>{ if(stack.length) gs=stack.pop(); };
+  let cur=[], sub=null; const gnames=[]; const paths=[];
+  let pendingClip=0, hidden=0; const hiddenStack=[];
+  const st={white:0, clipped:0, cut:0, hidden:0};
+  const P=(x,y)=>{ const m=mul(VT,gs.ctm); return [(m[0]*x+m[2]*y+m[4])*K,(m[1]*x+m[3]*y+m[5])*K]; };
   const start=p=>{ sub=[p]; cur.push(sub); };
   const lineTo=p=>{ if(!sub) start(p); else sub.push(p); };
   const bez=(p0,p1,p2,p3)=>{ const Lb=Math.hypot(p1[0]-p0[0],p1[1]-p0[1])+Math.hypot(p2[0]-p1[0],p2[1]-p1[1])+Math.hypot(p3[0]-p2[0],p3[1]-p2[1]);
     const n=Math.max(2,Math.min(200,Math.ceil(Math.sqrt(Lb/tol)*1.2)));
     for(let k=1;k<=n;k++){ const t=k/n,u=1-t; lineTo([u*u*u*p0[0]+3*u*u*t*p1[0]+3*u*t*t*p2[0]+t*t*t*p3[0], u*u*u*p0[1]+3*u*u*t*p1[1]+3*u*t*t*p2[1]+t*t*t*p3[1]]); } };
-  const commit=(isFillOnly)=>{ if(isFillOnly && /^#f{6}$/i.test(fill)){ skippedWhite++; cur=[]; sub=null; return; } const gn=isFillOnly?'채운 면 '+fill:'선 색 '+stroke; for(const s of cur){ const f=s.filter(q=>isFinite(q[0])&&isFinite(q[1])); if(f.length>1){ paths.push(f); gnames.push(gn); } } cur=[]; sub=null; };
-  const drop=()=>{ cur=[]; sub=null; };
+  const flat=s=>{ const f=[]; for(const q of s) if(isFinite(q[0])&&isFinite(q[1])) f.push(q[0],q[1]); return f; };
+  const unflat=f=>{ const r=[]; for(let i=0;i<f.length;i+=2) r.push([f[i],f[i+1]]); return r; };
+  // 칠하기 연산자: kind = 'stroke' | 'fill' | 'end'. 클립(W/W*)은 이 경로를 칠한 "다음"부터 적용됨 (PDF 규칙)
+  const paint=kind=>{
+    const subs=cur; cur=[]; sub=null;
+    const newClip=pendingClip?PDFCLIP.makeClip(subs.map(flat),pendingClip===2):null; pendingClip=0;
+    if(kind!=='end'){
+      if(hidden) st.hidden++;
+      else if(kind==='fill' && isWhite(gs.fill)) st.white++;          // 치수 숫자 뒤 흰 가림판 등
+      else if(kind==='stroke' && isWhite(gs.stroke)) st.white++;      // 흰 선 = 안 보이는 선
+      else { const gn=kind==='fill'?'채운 면 '+gs.fill:'선 색 '+gs.stroke;
+        for(const s of subs){ const f=flat(s); if(f.length<4) continue;
+          const parts=gs.clips.length?PDFCLIP.clipPolylineByRegion(f,gs.clips):[f];
+          if(!parts.length) st.clipped++; else if(parts.length>1||parts[0].length!==f.length||Math.abs(parts[0][0]-f[0])+Math.abs(parts[0][1]-f[1])+Math.abs(parts[0][parts[0].length-2]-f[f.length-2])+Math.abs(parts[0][parts[0].length-1]-f[f.length-1])>1e-6) st.cut++;
+          for(const p of parts) if(p.length>=4){ paths.push(unflat(p)); gnames.push(gn); } } }
+    }
+    if(newClip) gs.clips=gs.clips.concat([newClip]);
+  };
+  // 글자 위치 추적: 글자 연산마다 시작점(페이지 좌표)과 그때의 클립·숨김을 기록 → 아래 단선 글자에 같은 클립 적용
+  let Tm=[1,0,0,1,0,0], Tlm=[1,0,0,1,0,0], lead=0, tfs=0, tc=0, tw=0, th=1; const textRecs=[];
+  // 글자를 쓴 뒤 다음 글자 시작점으로 이동 (같은 BT 안에서 Td 없이 이어 쓰는 글자도 위치를 맞추려고)
+  const advance=g=>{ const r=textRecs[textRecs.length-1]; if(!g||!g.length) return; let x=0; for(const c of g){ if(typeof c==='number') x-=c/1000*tfs*th; else if(c) x+=((c.width||0)/1000*tfs+tc+(c.isSpace?tw:0))*th; } Tm=mul(Tm,[1,0,0,1,x,0]); if(r){ const m=mul(gs.ctm,Tm); r.x2=m[4]; r.y2=m[5]; } };
+  const recText=()=>{ const m=mul(gs.ctm,Tm); textRecs.push({x:m[4], y:m[5], x2:m[4], y2:m[5], clips:gs.clips, hidden:hidden>0}); };
+  const moveT=(tx,ty)=>{ Tlm=mul(Tlm,[1,0,0,1,tx,ty]); Tm=Tlm.slice(); };
   const {fnArray:F, argsArray:A}=ol;
   for(let i=0;i<F.length;i++){
     const fn=F[i], a=A[i];
-    if(fn===OPS.save){ stack.push(ctm); fillStack.push(fill); }
-    else if(fn===OPS.restore){ ctm=stack.pop()||[1,0,0,1,0,0]; fill=fillStack.pop()||fill; }
-    else if(fn===OPS.transform){ ctm=mul(ctm,a); }
-    else if(fn===OPS.paintFormXObjectBegin){ stack.push(ctm); fillStack.push(fill); if(a&&a[0]) ctm=mul(ctm,a[0]); }
-    else if(fn===OPS.paintFormXObjectEnd){ ctm=stack.pop()||[1,0,0,1,0,0]; fill=fillStack.pop()||fill; }
-    else if(fn===OPS.setFillRGBColor){ fill=typeof a[0]==='string'?a[0]:'#'+a.slice(0,3).map(v=>Math.round(v).toString(16).padStart(2,'0')).join(''); }
-    else if(fn===OPS.setStrokeRGBColor){ stroke=typeof a[0]==='string'?a[0]:'#'+a.slice(0,3).map(v=>Math.round(v).toString(16).padStart(2,'0')).join(''); }
-    else if(fn===OPS.setFillGray){ fill=a[0]>=0.999?'#ffffff':'#000000'; }
+    if(fn===OPS.save) save();
+    else if(fn===OPS.restore) restore();
+    else if(fn===OPS.transform){ gs.ctm=mul(gs.ctm,a); }
+    else if(fn===OPS.paintFormXObjectBegin){ save(); if(a&&a[0]&&a[0].length===6) gs.ctm=mul(gs.ctm,Array.from(a[0]));
+      const bb=a&&a[1]; if(bb&&bb.length===4){ const [x0,y0,x1,y1]=Array.from(bb); const r=[P(x0,y0),P(x1,y0),P(x1,y1),P(x0,y1),P(x0,y0)];
+        gs.clips=gs.clips.concat([PDFCLIP.makeClip([flat(r)],false)]); } }      // 폼 BBox도 클립
+    else if(fn===OPS.paintFormXObjectEnd) restore();
+    else if(fn===OPS.setFillRGBColor){ gs.fill=hex(a); }
+    else if(fn===OPS.setStrokeRGBColor){ gs.stroke=hex(a); }
+    else if(fn===OPS.setFillGray){ gs.fill=a[0]>=0.98?'#ffffff':'#000000'; }
+    else if(fn===OPS.setStrokeGray){ gs.stroke=a[0]>=0.98?'#ffffff':'#000000'; }
+    else if(fn===OPS.clip) pendingClip=1;
+    else if(fn===OPS.eoClip) pendingClip=2;
+    else if(fn===OPS.beginMarkedContentProps){ let vis=true; if(a&&a[0]==='OC'&&oc&&a[1]){ try{ vis=oc.isVisible(a[1]); }catch(e){ vis=true; } } hiddenStack.push(!vis); if(!vis) hidden++; }
+    else if(fn===OPS.beginMarkedContent) hiddenStack.push(false);
+    else if(fn===OPS.endMarkedContent){ if(hiddenStack.pop()) hidden--; }
+    else if(fn===OPS.beginText){ Tm=[1,0,0,1,0,0]; Tlm=[1,0,0,1,0,0]; }
+    else if(fn===OPS.setTextMatrix){ const m=Array.from(a.length===1&&a[0].length===6?a[0]:a).slice(0,6); Tlm=m; Tm=m.slice(); }
+    else if(fn===OPS.moveText){ moveT(a[0],a[1]); }
+    else if(fn===OPS.setLeadingMoveText){ lead=-a[1]; moveT(a[0],a[1]); }
+    else if(fn===OPS.setLeading){ lead=a[0]; }
+    else if(fn===OPS.nextLine){ moveT(0,-lead); }
+    else if(fn===OPS.setFont){ tfs=+a[1]||0; }
+    else if(fn===OPS.setCharSpacing){ tc=+a[0]||0; }
+    else if(fn===OPS.setWordSpacing){ tw=+a[0]||0; }
+    else if(fn===OPS.setHScale){ th=(+a[0]||100)/100; }
+    else if(fn===OPS.showText||fn===OPS.showSpacedText){ recText(); advance(a[0]); }
+    else if(fn===OPS.nextLineShowText){ moveT(0,-lead); recText(); advance(a[0]); }
+    else if(fn===OPS.nextLineSetSpacingShowText){ tw=+a[0]||0; tc=+a[1]||0; moveT(0,-lead); recText(); advance(a[2]); }
     else if(fn===OPS.constructPath){
-      const ops=a[0], args=a[1]; let j=0; let last=sub?sub[sub.length-1]:null; let lastRaw=[0,0];
+      const ops=a[0], args=a[1]; let j=0; let lastRaw=[0,0];
       for(const op of ops){
         if(op===OPS.moveTo){ const x=args[j++],y=args[j++]; lastRaw=[x,y]; start(P(x,y)); }
         else if(op===OPS.lineTo){ const x=args[j++],y=args[j++]; lastRaw=[x,y]; lineTo(P(x,y)); }
@@ -1114,22 +1214,93 @@ async function parsePDF(buf, askPage){
         else if(op===OPS.rectangle){ const x=args[j++],y=args[j++],w=args[j++],h=args[j++]; start(P(x,y)); lineTo(P(x+w,y)); lineTo(P(x+w,y+h)); lineTo(P(x,y+h)); lineTo(P(x,y)); sub=null; }
       }
     }
-    else if(fn===OPS.stroke||fn===OPS.closeStroke||fn===OPS.fillStroke||fn===OPS.eoFillStroke||fn===OPS.closeFillStroke||fn===OPS.closeEOFillStroke){ if(fn===OPS.closeStroke||fn===OPS.closeFillStroke||fn===OPS.closeEOFillStroke){ if(sub&&sub.length>1) sub.push(sub[0].slice()); } commit(false); }
-    else if(fn===OPS.fill||fn===OPS.eoFill){ commit(true); }
-    else if(fn===OPS.endPath){ drop(); }
+    else if(fn===OPS.stroke||fn===OPS.closeStroke||fn===OPS.fillStroke||fn===OPS.eoFillStroke||fn===OPS.closeFillStroke||fn===OPS.closeEOFillStroke){ if(fn===OPS.closeStroke||fn===OPS.closeFillStroke||fn===OPS.closeEOFillStroke){ if(sub&&sub.length>1) sub.push(sub[0].slice()); } paint('stroke'); }
+    else if(fn===OPS.fill||fn===OPS.eoFill){ paint('fill'); }
+    else if(fn===OPS.endPath){ paint('end'); }
   }
-  // 글자: 글꼴 윤곽 대신 단선 글꼴로 다시 씀 (위치·크기·폭은 PDF 글자에 맞춤)
-  const TI={n:0, miss:0, hangulMiss:0, wanted:new Set()};
+  // 글자: 글꼴 윤곽 대신 단선 글꼴로 다시 씀 (위치·크기·폭은 PDF 글자에 맞춤). 가장 가까운 글자 연산의 클립으로 자름
+  const TI={n:0, miss:0, hangulMiss:0, wanted:new Set()}; let textCut=0;
   try{ const tc=await page.getTextContent(); const fs=fontSetPDF();
     for(const it of tc.items){ if(!it.str||!it.str.trim()) continue; const T=it.transform; const fx=Math.hypot(T[0],T[1]); if(!fx) continue;
+      // 글자 연산 하나가 시작점~끝점 구간을 덮음 (pdf.js가 한 연산을 여러 조각으로 나누는 경우 대비)
+      let rec=null, bd=Infinity; for(const r of textRecs){ const vx=r.x2-r.x, vy=r.y2-r.y, L2=vx*vx+vy*vy; let t=L2>0?((T[4]-r.x)*vx+(T[5]-r.y)*vy)/L2:0; t=Math.max(0,Math.min(1,t)); const d=(r.x+vx*t-T[4])**2+(r.y+vy*t-T[5])**2; if(d<bd){ bd=d; rec=r; } }
+      if(rec && rec.hidden){ textCut++; continue; }
+      const clips=rec?rec.clips:[];
       const L=layoutLine(it.str,0.7,fs); TI.n++; TI.miss+=L.miss; TI.hangulMiss+=L.hangulMiss;
       let sx=1; if(it.width>0 && L.width>0){ const f=(it.width/fx)/L.width; if(f>0.25&&f<4) sx=f; }
-      const M=mul(VT,T);
-      for(const st of L.strokes){ const q=st.map(p=>{ const u=p[0]*sx, v=p[1]; return [(M[0]*u+M[2]*v+M[4])*K,(M[1]*u+M[3]*v+M[5])*K]; }).filter(q=>isFinite(q[0])&&isFinite(q[1])); if(q.length>1){ paths.push(q); gnames.push('글자 (PDF)'); } }
+      const M=mul(VT,T); let any=false;
+      for(const s of L.strokes){ const q=s.map(p=>{ const u=p[0]*sx, v=p[1]; return [(M[0]*u+M[2]*v+M[4])*K,(M[1]*u+M[3]*v+M[5])*K]; }).filter(q=>isFinite(q[0])&&isFinite(q[1])); if(q.length<2) continue;
+        const parts=clips.length?PDFCLIP.clipPolylineByRegion(flat(q),clips):[flat(q)];
+        for(const p of parts) if(p.length>=4){ paths.push(unflat(p)); gnames.push('글자 (PDF)'); any=true; } }
+      if(!any){ textCut++; TI.n--; }
     }
   }catch(e){}
-  const note=`PDF ${pn}/${doc.numPages}쪽 · pt 단위로 계산`+(skippedWhite?` · 흰 채우기 ${skippedWhite}개 건너뜀`:'');
-  return {paths, gnames, unitNote:note, texts:0, uses:0, textInfo:TI};
+  const note=`PDF ${pn}/${doc.numPages}쪽 · pt 단위로 계산`+(st.white?` · 흰 채우기 ${st.white}개 건너뜀`:'')+(st.clipped||st.cut||textCut?` · 클립 밖 선 ${st.clipped}개·글자 ${textCut}개 안 그림, 잘린 선 ${st.cut}개`:'')+(st.hidden?` · 숨긴 레이어 ${st.hidden}개 건너뜀`:'');
+  const nDim=findDims(paths,gnames);
+  return {paths, gnames, unitNote:note+(nDim?` · 치수선·화살표 ${nDim}개 찾음`:''), texts:0, uses:0, textInfo:TI};
+}
+
+/* ================= 치수선 자동 찾기 (레이어 구분 없는 PDF용) =================
+   지우지 않고 '치수 (자동 찾음)' 묶음으로만 옮김 → "치수선·화살표 그리기"로 켜고 끔.
+   ① 화살촉 = 작은(대각선 4mm 미만) 닫힌 삼각형·사각형  ② 치수선 = 곧은 선 + 끝에 화살촉이 같은 방향으로 붙음
+   ③ 보조선 = 치수선 끝(화살촉 끝)이 닿는 수직인 곧은 선, 닿는 곳이 그 선 끝에서 4mm 안, 길이 60mm 이하 */
+function findDims(paths, gnames){
+  const N=paths.length, isDim=new Uint8Array(N);
+  const arrows=[], lines=[];
+  for(let i=0;i<N;i++){
+    const g=gnames[i]||''; if(/^글자 /.test(g)) continue; const p=paths[i]; if(p.length<2) continue;
+    let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; for(const q of p){ if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0]; if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1]; }
+    const diag=Math.hypot(x1-x0,y1-y0); const a=p[0], b=p[p.length-1];
+    const closed=p.length>=4 && Math.hypot(a[0]-b[0],a[1]-b[1])<0.02;
+    if(closed && diag<4 && diag>0.3){
+      const v=[]; for(const q of p.slice(0,-1)) if(!v.length || Math.hypot(q[0]-v[v.length-1][0],q[1]-v[v.length-1][1])>0.01) v.push(q);
+      if(v.length>=3 && v.length<=5){
+        // 꼭짓점 = 가장 짧은 변의 반대편 (가늘고 긴 삼각형)
+        let best=null; for(let k=0;k<v.length;k++){ const A=v[k], B=v[(k+1)%v.length]; const L=Math.hypot(A[0]-B[0],A[1]-B[1]); if(!best||L<best.L) best={L,m:[(A[0]+B[0])/2,(A[1]+B[1])/2],k}; }
+        let tip=null, td=-1; for(const q of v){ const d=Math.hypot(q[0]-best.m[0],q[1]-best.m[1]); if(d>td){ td=d; tip=q; } }
+        if(td>best.L*1.5){ arrows.push({i, tip, base:best.m, len:td, dx:(tip[0]-best.m[0])/td, dy:(tip[1]-best.m[1])/td}); continue; }
+      }
+    }
+    // 곧은 선? (갔다 돌아오는 닫힌 선도 포함: 첫 점에서 가장 먼 점으로 방향을 잡음)
+    let far=a, fd=0; for(const q of p){ const d=Math.hypot(q[0]-a[0],q[1]-a[1]); if(d>fd){ fd=d; far=q; } }
+    if(fd<2) continue; const ux=(far[0]-a[0])/fd, uy=(far[1]-a[1])/fd; let ok=true, t0=0, t1=0;
+    for(const q of p){ const px=q[0]-a[0], py=q[1]-a[1]; if(Math.abs(px*uy-py*ux)>0.05){ ok=false; break; } const t=px*ux+py*uy; if(t<t0)t0=t; if(t>t1)t1=t; }
+    if(ok) lines.push({i, a:[a[0]+ux*t0,a[1]+uy*t0], b:[a[0]+ux*t1,a[1]+uy*t1], L:t1-t0, ux, uy});
+  }
+  if(!arrows.length) return 0;
+  // 격자로 화살촉 찾기
+  const cell=5, grid=new Map(), key=(x,y)=>Math.floor(x/cell)+','+Math.floor(y/cell);
+  arrows.forEach((ar,k)=>{ const kk=key(ar.tip[0],ar.tip[1]); if(!grid.has(kk)) grid.set(kk,[]); grid.get(kk).push(k); });
+  const near=(x,y)=>{ const out=[]; const cx=Math.floor(x/cell), cy=Math.floor(y/cell); for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++){ const g=grid.get((cx+i)+','+(cy+j)); if(g) out.push(...g); } return out; };
+  const dimLines=[]; const usedA=new Set();
+  for(const ln of lines){
+    let hit=false; const tips=[];
+    for(const end of [ln.a, ln.b]){
+      for(const k of near(end[0],end[1])){ const ar=arrows[k];
+        if(Math.abs(ar.dx*ln.uy-ar.dy*ln.ux)>0.09) continue;                       // 방향 5° 안
+        const px=ar.tip[0]-ln.a[0], py=ar.tip[1]-ln.a[1];
+        if(Math.abs(px*ln.uy-py*ln.ux)>0.3) continue;                               // 선 위에 있음
+        const t=px*ln.ux+py*ln.uy; if(t<-(ar.len+0.5)||t>ln.L+ar.len+0.5) continue;  // 치수선이 화살촉 밑동에서 끝나기도 함
+        if(Math.min(Math.abs(t),Math.abs(ln.L-t))>ar.len+1) continue;              // 선 끝 근처
+        hit=true; usedA.add(k); tips.push(ar.tip);
+      }
+    }
+    if(hit){ isDim[ln.i]=1; dimLines.push({...ln, pts:[ln.a,ln.b,...tips]}); }
+  }
+  usedA.forEach(k=>isDim[arrows[k].i]=1);
+  // 보조선
+  for(const ln of lines){ if(isDim[ln.i] || ln.L>60) continue;   // 60mm 넘는 선(바닥선 등)은 보조선으로 안 봄
+    for(const d of dimLines){
+      if(Math.abs(ln.ux*d.ux+ln.uy*d.uy)>0.09) continue;                              // 수직 (±5°)
+      let touch=false;
+      for(const e of d.pts){ const px=e[0]-ln.a[0], py=e[1]-ln.a[1];
+        if(Math.abs(px*ln.uy-py*ln.ux)>0.3) continue; const t=px*ln.ux+py*ln.uy;
+        if(t<-0.3||t>ln.L+0.3) continue; if(Math.min(Math.abs(t),Math.abs(ln.L-t))<=4){ touch=true; break; } }
+      if(touch){ isDim[ln.i]=1; break; }
+    }
+  }
+  let n=0; for(let i=0;i<N;i++) if(isDim[i]){ gnames[i]='치수 (자동 찾음)'; n++; }
+  return n;
 }
 
 /* ================= 선 순서 + 붙은 선 잇기 (격자 탐색, 큰 그림도 빠름) ================= */
@@ -1232,7 +1403,7 @@ function bboxOf(paths){ let a=Infinity,b=Infinity,c=-Infinity,d=-Infinity; for(c
 // all: 원본 선(파일 좌표 mm) + 묶음(레이어/색) + 지움 표시. src: 보이는 선만, 왼쪽 위 0,0 기준
 function makeObject(name, paths, note, gnames){
   const groups=[], gi={};
-  const all=paths.map((p,i)=>{ const n=(gnames&&gnames[i])||'기본'; if(!(n in gi)){ gi[n]=groups.length; const tx=/^글자 /.test(n); groups.push({name:n,count:0,on:tx?!!S.drawText:true,text:tx}); } groups[gi[n]].count++; return {p,g:gi[n],del:false}; });
+  const all=paths.map((p,i)=>{ const n=(gnames&&gnames[i])||'기본'; if(!(n in gi)){ gi[n]=groups.length; const tx=/^글자 /.test(n), dm=/^치수 /.test(n); groups.push({name:n,count:0,on:tx?!!S.drawText:(dm?S.drawDim!==false:true),text:tx,dim:dm}); } groups[gi[n]].count++; return {p,g:gi[n],del:false}; });
   const o={id:'o'+Date.now(), name, all, groups, undo:[], src:[], srcItems:[], paths:null, w0:1, h0:1, mx:0, my:0, x:10, y:10, scale:1, rot:0, optimize:true, note, cache:{}};
   refreshSrc(o,false); Doc.objects=[o]; return o;
 }
@@ -1265,7 +1436,7 @@ function findDots(o, exclude){
   const ex=new Set(exclude||[]); const vis=o.all.filter(it=>!it.del && o.groups[it.g].on && !ex.has(it)); if(!vis.length) return [];
   const b=bboxOf(vis.map(it=>it.p)); const diag=Math.hypot(b[2]-b[0],b[3]-b[1]); const lim=Math.max(0.02, diag/5000); const q=Math.max(lim,diag/1e6);
   const lenOf=p=>{ let L=0; for(let k=1;k<p.length && L<lim;k++) L+=Math.hypot(p[k][0]-p[k-1][0],p[k][1]-p[k-1][1]); return L; };
-  const cand=vis.filter(it=>!o.groups[it.g].text && lenOf(it.p)<lim); if(!cand.length) return [];
+  const cand=vis.filter(it=>!o.groups[it.g].text && !o.groups[it.g].dim && lenOf(it.p)<lim); if(!cand.length) return [];
   const key=(pt,dx,dy)=>(Math.round(pt[0]/q)+dx)+','+(Math.round(pt[1]/q)+dy);
   const cnt=new Map(); for(const it of vis){ const p=it.p; for(const e of [p[0],p[p.length-1]]){ const k=key(e,0,0); cnt.set(k,(cnt.get(k)||0)+1); } }
   const touches=(pt,self)=>{ let n=0; for(let dx=-1;dx<=1;dx++) for(let dy=-1;dy<=1;dy++) n+=cnt.get(key(pt,dx,dy))||0; return n>self; };
@@ -1499,6 +1670,7 @@ const UI = {
     $('#bUndoDel').disabled=!o.undo.length;
     const nd=del.reduce((a,b)=>a+b,0); $('#delInfo').textContent=nd?`지운 선 ${nd.toLocaleString()}개 · 남은 선 ${cnt.reduce((a,b)=>a+b,0).toLocaleString()}개`:'';
     const tg=o.groups.filter(g=>g.text); $('#cText').indeterminate=tg.length>0 && tg.some(g=>g.on) && tg.some(g=>!g.on);
+    const dg=o.groups.filter(g=>g.dim); $('#cDim').indeterminate=dg.length>0 && dg.some(g=>g.on) && dg.some(g=>!g.on);
   },
   fonts(){
     const keys=Object.keys(Fonts.shx).sort(); const mains=keys.filter(k=>Fonts.shx[k].kind!=='bigfont'), bigs=keys.filter(k=>Fonts.shx[k].kind==='bigfont');
@@ -1512,7 +1684,7 @@ const UI = {
     $('#fontInfo').innerHTML=(keys.length?`불러온 글꼴: ${keys.map(k=>`<span title="${Fonts.shx[k].kind}" style="white-space:nowrap">${k} <a href="#" data-fdel="${k}" style="color:var(--bad);text-decoration:none">✕</a></span>`).join(', ')}<br>`:'')+
       (Fonts.shx[bk]?'':'한글은 <b>whgtxt.shx</b>를 불러와야 그립니다. AutoCAD 폴더 <code>C:\\Program Files\\Autodesk\\AutoCAD 20xx\\Fonts</code> 에 있어요.<br>')+
       (want.length?`⚠ 이 도면이 쓰는 글꼴 없음: ${want.join(', ')} (기본 글꼴로 대신)`:'');
-    $('#cText').checked=!!S.drawText; $('#cShowDel').checked=!!S.showDel;
+    $('#cText').checked=!!S.drawText; $('#cDim').checked=S.drawDim!==false; $('#cShowDel').checked=!!S.showDel;
   },
   status(){
     const p=$('#pill'), t=$('#pilltxt'); p.className='pill';
@@ -1807,6 +1979,7 @@ $('#bUndoDel').onclick=()=>{ const o=activeObj(); if(!o||!o.undo.length) return;
 let eraser=false, hoverItem=-1;
 $('#cShowDel').onchange=e=>{ S.showDel=e.target.checked; saveS(); draw(); };
 $('#cText').onchange=e=>{ S.drawText=e.target.checked; saveS(); const o=activeObj(); if(o){ let n=0; o.groups.forEach(g=>{ if(g.text){ g.on=S.drawText; n++; } }); if(n){ refreshSrc(o,true); UI.obj(); UI.groups(); } else if(S.drawText) toast('이 그림에는 글자가 없습니다'); } };
+$('#cDim').onchange=e=>{ S.drawDim=e.target.checked; saveS(); const o=activeObj(); if(o){ let n=0; o.groups.forEach(g=>{ if(g.dim){ g.on=S.drawDim; n++; } }); if(n){ refreshSrc(o,true); UI.obj(); UI.groups(); } else toast('이 그림에서는 치수선을 찾지 못했습니다'); } };
 const reopenForFonts=async(msg)=>{ UI.fonts(); if(lastFile && /\.(dxf|pdf)$/i.test(lastFile.name) && activeObj()){ if(await modal('그림을 다시 읽을까요?',`<p>${msg}</p><p>지금 열린 <b>${lastFile.name}</b>를 새 글꼴로 다시 읽습니다. (정리·옮기기는 처음으로 돌아갑니다)</p>`,[['나중에',0,''],['다시 읽기',1,'pri']])) openFile(lastFile); } else toast(msg); };
 $('#selMain').onchange=e=>{ S.txtMain=e.target.value; saveS(); reopenForFonts('영문 글꼴을 '+S.txtMain+'(으)로 바꿨습니다'); };
 $('#selBig').onchange=e=>{ S.txtBig=e.target.value; saveS(); reopenForFonts('한글 큰 글꼴을 '+S.txtBig+'(으)로 바꿨습니다'); };
@@ -1858,6 +2031,7 @@ $$('[data-k]').forEach(el=>el.addEventListener('change',()=>{
 const PEN_W={ball04:0.15,ball05:0.2,ball07:0.3,gel038:0.2,liner03:0.3,tech04:0.4};
 $('#penPreset').addEventListener('change',e=>{ const v=PEN_W[e.target.value]; if(v){ S.lineW=v; saveS(); bindForm(); UI.obj(); } });
 document.querySelector('[data-k="lineW"]').addEventListener('change',()=>{ if(PEN_W[S.penPreset]!==S.lineW){ S.penPreset='custom'; saveS(); bindForm(); } });
+$('#bAccel500').onclick=()=>{ const add=['$/axes/x/acceleration_mm_per_sec2=500','$/axes/y/acceleration_mm_per_sec2=500']; const cur=String(S.onConnect||'').split(/\r?\n/).filter(l=>l.trim() && !/acceleration_mm_per_sec2/.test(l)); S.onConnect=cur.concat(add).join('\n'); saveS(); bindForm(); toast(M.connected?'넣었습니다. 연결을 끊고 다시 연결하면 적용됩니다':'넣었습니다. 기계 연결 때 자동으로 보냅니다'); };
 $('#paperSel').onchange=e=>{ if(e.target.value==='custom') return; const [w,h]=e.target.value.split('x').map(Number); S.paperW=w; S.paperH=h; saveS(); bindForm(); UI.obj(); fitView(); };
 $('#bDefaults').onclick=async()=>{ if(!await modal('펜·속도를 기본값으로?','<p>올림 Z5, 내림 Z0, 더 누르기 0, 속도 1500, 대기 0.1초로 돌아갑니다.</p>',[['취소',false],['되돌리기',true,'pri']])) return; ['zUp','zContact','zExtra','zFeed','dwellDown','dwellUp','feedDraw','travelMode','feedTravel','jogFeed','zStep'].forEach(k=>S[k]=DEFAULTS[k]); saveS(); bindForm(); UI.obj(); };
 $('#conHead').onclick=()=>{ const op=$('#console').classList.toggle('open'); $('#conArrow').textContent=op?'▾':'▸'; logEl.scrollTop=logEl.scrollHeight; };
