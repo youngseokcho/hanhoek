@@ -253,6 +253,10 @@ main.noleft #left, main.noright #right{display:none}
         </div>
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">정리 <span style="font-weight:500">레이어·색별 켜고 끄기</span></h3>
+        <div style="font-size:12px;padding-bottom:4px;margin-bottom:4px;border-bottom:1px dashed var(--line)">
+          <label style="display:flex;gap:5px;align-items:center;padding:2px 0" title="DXF는 치수(DIMENSION), PDF·SVG·DXF 선은 화살촉이 붙은 곧은 선과 보조선을 자동으로 찾습니다. 지우지 않고 켜고 끄기만 합니다."><input type="checkbox" id="cDim"><span style="flex:1">치수선·화살표</span><span class="muted" id="nDim"></span></label>
+          <label style="display:flex;gap:5px;align-items:center;padding:2px 0"><input type="checkbox" id="cText"><span style="flex:1">글자·치수 숫자</span><span class="muted" id="nText"></span></label>
+        </div>
         <div id="groupList" style="max-height:150px;overflow:auto;font-size:12px"></div>
         <div class="grid2" style="margin-top:6px">
           <button class="btn sm" id="bFar" title="그림에서 멀리 떨어진 선 찾아 지우기">🔭 먼 선 지우기</button>
@@ -264,8 +268,6 @@ main.noleft #left, main.noright #right{display:none}
         <div id="delInfo" class="muted" style="font-size:11.5px"></div>
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">글자 <span style="font-weight:500">단선(한 줄) 글꼴로 그리기</span></h3>
-        <label style="display:flex;gap:5px;align-items:center;font-size:12px"><input type="checkbox" id="cText"> 글자·치수 숫자 그리기</label>
-        <label style="display:flex;gap:5px;align-items:center;font-size:12px" title="DXF는 치수(DIMENSION), PDF·SVG는 화살촉이 붙은 곧은 선과 보조선을 자동으로 찾아 '치수' 묶음에 넣습니다. 지우지 않고 켜고 끄기만 합니다."><input type="checkbox" id="cDim"> 치수선·화살표 그리기 <span class="muted">(끄면 그림만)</span></label>
         <div class="f" style="margin-top:4px">
           <label>영문·숫자<small>DXF 기본</small></label><select id="selMain"></select>
           <label>한글 큰 글꼴<small>DXF 기본</small></label><select id="selBig"></select>
@@ -1063,7 +1065,8 @@ function parseDXF(text){
   const unitName={0:'단위 없음→mm',1:'인치',2:'피트',4:'mm',5:'cm',6:'m'}[units]||('단위 '+units);
   const NAMES={PAPER:'종이 공간',TEXT:'글자',MTEXT:'글자',HATCH:'해치',SOLID:'채운 면',POINT:'점',ATTRIB:'속성 글자',ATTDEF:'속성 글자',VIEWPORT:'뷰포트'}; const agg={}; for(const [t,n] of Object.entries(skipped)){ const nm=NAMES[t]||t; agg[nm]=(agg[nm]||0)+n; }
   const sk=Object.entries(agg).map(([t,n])=>`${t} ${n}개`).join(', ');
-  return {paths, gnames, unitNote:'DXF '+unitName+(sk?` · 안 그림: ${sk}`:''), texts:0, uses:0, broken, textInfo:TI};
+  const nDim=findDims(paths,gnames);
+  return {paths, gnames, unitNote:'DXF '+unitName+(sk?` · 안 그림: ${sk}`:'')+(nDim?` · 치수선·화살표 ${nDim}개 찾음`:''), texts:0, uses:0, broken, textInfo:TI};
 }
 
 /* ================= 벡터 PDF 읽기 (pdf.js 3.11 내장, 인터넷 필요 없음) ================= */
@@ -1242,18 +1245,18 @@ async function parsePDF(buf, askPage){
 
 /* ================= 치수선 자동 찾기 (레이어 구분 없는 PDF용) =================
    지우지 않고 '치수 (자동 찾음)' 묶음으로만 옮김 → "치수선·화살표 그리기"로 켜고 끔.
-   ① 화살촉 = 작은(대각선 4mm 미만) 닫힌 삼각형·사각형  ② 치수선 = 곧은 선 + 끝에 화살촉이 같은 방향으로 붙음
+   ① 화살촉 = 작은(대각선 4mm 미만) 닫힌 삼각형·사각형, 또는 점 3개짜리 열린 삼각형·V자  ② 치수선 = 곧은 선 + 끝에 화살촉이 같은 방향으로 붙음
    ③ 보조선 = 치수선 끝(화살촉 끝)이 닿는 수직인 곧은 선, 닿는 곳이 그 선 끝에서 4mm 안, 길이 60mm 이하 */
 function findDims(paths, gnames){
   const N=paths.length, isDim=new Uint8Array(N);
   const arrows=[], lines=[];
   for(let i=0;i<N;i++){
-    const g=gnames[i]||''; if(/^글자 /.test(g)) continue; const p=paths[i]; if(p.length<2) continue;
+    const g=gnames[i]||''; if(/^글자 |^치수 /.test(g)) continue; /* 이미 치수(DXF DIMENSION)인 선은 그대로 */ const p=paths[i]; if(p.length<2) continue;
     let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; for(const q of p){ if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0]; if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1]; }
     const diag=Math.hypot(x1-x0,y1-y0); const a=p[0], b=p[p.length-1];
     const closed=p.length>=4 && Math.hypot(a[0]-b[0],a[1]-b[1])<0.02;
-    if(closed && diag<4 && diag>0.3){
-      const v=[]; for(const q of p.slice(0,-1)) if(!v.length || Math.hypot(q[0]-v[v.length-1][0],q[1]-v[v.length-1][1])>0.01) v.push(q);
+    if((closed || p.length===3) && diag<4 && diag>0.3){   // 닫힌 삼각형, 또는 점 3개짜리 열린 삼각형·V자
+      const v=[]; for(const q of (closed?p.slice(0,-1):p)) if(!v.length || Math.hypot(q[0]-v[v.length-1][0],q[1]-v[v.length-1][1])>0.01) v.push(q);
       if(v.length>=3 && v.length<=5){
         // 꼭짓점 = 가장 짧은 변의 반대편 (가늘고 긴 삼각형)
         let best=null; for(let k=0;k<v.length;k++){ const A=v[k], B=v[(k+1)%v.length]; const L=Math.hypot(A[0]-B[0],A[1]-B[1]); if(!best||L<best.L) best={L,m:[(A[0]+B[0])/2,(A[1]+B[1])/2],k}; }
@@ -1666,11 +1669,13 @@ const UI = {
     const o=activeObj(), el=$('#groupList');
     if(!o){ el.innerHTML=''; return; }
     const cnt=o.groups.map(()=>0), del=o.groups.map(()=>0); for(const it of o.all){ if(it.del) del[it.g]++; else cnt[it.g]++; }
-    el.innerHTML=o.groups.map((g,i)=>`<label style="display:flex;gap:5px;align-items:center;padding:2px 0"><input type="checkbox" data-g="${i}" ${g.on?'checked':''}>${/^선 색 #|^채운 면 #/.test(g.name)?`<span style="width:10px;height:10px;border-radius:2px;background:${g.name.split(' ').pop()};border:1px solid var(--line)"></span>`:''}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.name}">${g.name}</span><span class="muted" style="flex:none;white-space:nowrap">${cnt[i].toLocaleString()}${del[i]?` (지움 ${del[i]})`:''}</span></label>`).join('');
+    el.innerHTML=o.groups.map((g,i)=>(g.text||g.dim)?'':`<label style="display:flex;gap:5px;align-items:center;padding:2px 0"><input type="checkbox" data-g="${i}" ${g.on?'checked':''}>${/^선 색 #|^채운 면 #/.test(g.name)?`<span style="width:10px;height:10px;border-radius:2px;background:${g.name.split(' ').pop()};border:1px solid var(--line)"></span>`:''}<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.name}">${g.name}</span><span class="muted" style="flex:none;white-space:nowrap">${cnt[i].toLocaleString()}${del[i]?` (지움 ${del[i]})`:''}</span></label>`).join('');
     $('#bUndoDel').disabled=!o.undo.length;
     const nd=del.reduce((a,b)=>a+b,0); $('#delInfo').textContent=nd?`지운 선 ${nd.toLocaleString()}개 · 남은 선 ${cnt.reduce((a,b)=>a+b,0).toLocaleString()}개`:'';
-    const tg=o.groups.filter(g=>g.text); $('#cText').indeterminate=tg.length>0 && tg.some(g=>g.on) && tg.some(g=>!g.on);
-    const dg=o.groups.filter(g=>g.dim); $('#cDim').indeterminate=dg.length>0 && dg.some(g=>g.on) && dg.some(g=>!g.on);
+    // 치수·글자는 위 체크 두 개로만 켜고 끔 (묶음이 여러 개여도 한꺼번에)
+    for(const [id,nid,key] of [['#cText','#nText','text'],['#cDim','#nDim','dim']]){ const gi=o.groups.map((g,i)=>g[key]?i:-1).filter(i=>i>=0); const n=gi.reduce((a,i)=>a+cnt[i],0);
+      const c=$(id); c.disabled=!gi.length; c.checked=gi.length?gi.every(i=>o.groups[i].on):(key==='text'?!!S.drawText:S.drawDim!==false); c.indeterminate=gi.length>0 && gi.some(i=>o.groups[i].on) && gi.some(i=>!o.groups[i].on);
+      $(nid).textContent=gi.length?n.toLocaleString():'없음'; }
   },
   fonts(){
     const keys=Object.keys(Fonts.shx).sort(); const mains=keys.filter(k=>Fonts.shx[k].kind!=='bigfont'), bigs=keys.filter(k=>Fonts.shx[k].kind==='bigfont');
