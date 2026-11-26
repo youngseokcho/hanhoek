@@ -1707,11 +1707,15 @@ const UI = {
   fonts(){
     const keys=Object.keys(Fonts.shx).sort(); const mains=keys.filter(k=>Fonts.shx[k].kind!=='bigfont'), bigs=keys.filter(k=>Fonts.shx[k].kind==='bigfont');
     const opt=(v,t,cur)=>`<option value="${v}" ${v===cur?'selected':''}>${t}</option>`;
-    const mk=fontKey(S.txtMain), bk=fontKey(S.txtBig);
-    $('#selMain').innerHTML=[...new Set([...mains,'romans','simplex','isocp'])].map(k=>opt(k, k+'.shx'+(Fonts.shx[k]?'':' → 내장 simplex'), mk)).join('');
-    $('#selBig').innerHTML=[...new Set([...bigs,'whgtxt'])].map(k=>opt(k, k+'.shx'+(Fonts.shx[k]?'':' (없음)'), bk)).join('');
-    $('#selPdfMain').innerHTML=opt('@simplex','내장 simplex (고딕 단선)',S.pdfMain)+opt('@script','내장 손글씨 (영문 필기체)',S.pdfMain)+mains.map(k=>opt(k,k+'.shx',S.pdfMain)).join('');
-    $('#selPdfBig').innerHTML=bigs.map(k=>opt(k,k+'.shx',fontKey(S.pdfBig))).join('')+(bigs.includes(fontKey(S.pdfBig))||fontKey(S.pdfBig)==='@garam'?'':opt(fontKey(S.pdfBig),fontKey(S.pdfBig)+'.shx (없음)',fontKey(S.pdfBig)))+opt('@garam','가람연꽃 단선 한글체 (손글씨)',fontKey(S.pdfBig));
+    const uniq=a=>[...new Set(a.filter(Boolean))];
+    const mk=fontKey(S.txtMain), bk=fontKey(S.txtBig), pmk=fontKey(S.pdfMain), pbk=fontKey(S.pdfBig);
+    // 지금 고른 값은 목록에 없더라도(불러온 글꼴을 지웠거나 다시 열었을 때) 항목으로 남겨 둠 — 고른 값이 목록에서 사라지면 되돌릴 수 없음
+    $('#selMain').innerHTML=uniq([...mains,'romans','simplex','isocp',mk]).map(k=>opt(k, k+'.shx'+(Fonts.shx[k]?'':' → 내장 simplex'), mk)).join('');
+    $('#selBig').innerHTML=uniq([...bigs,'whgtxt',bk]).map(k=>opt(k, k+'.shx'+(Fonts.shx[k]?'':' (없음)'), bk)).join('');
+    $('#selPdfMain').innerHTML=opt('@simplex','내장 simplex (고딕 단선)',pmk)+opt('@script','내장 손글씨 (영문 필기체)',pmk)+(pmk==='@simplex'||pmk==='@script'||mains.includes(pmk)?'':opt(pmk,pmk+'.shx → 내장 simplex',pmk))+mains.map(k=>opt(k,k+'.shx',pmk)).join('');
+    // PDF 한글: 불러온 큰 글꼴 + 기본 (없음) + 가람연꽃을 항상 함께 둠 — 어떤 글꼴을 골라도 (없음)으로 돌아올 수 있어야 함
+    $('#selPdfBig').innerHTML=uniq([...bigs,'whgtxt',pbk]).filter(k=>k!=='@garam').map(k=>opt(k,k+'.shx'+(Fonts.shx[k]?'':' (없음)'),pbk)).join('')
+      +opt('@garam','가람연꽃 단선 한글체 (손글씨)',pbk);
     const ti=lastTextInfo; const want=ti?[...ti.wanted].filter(w=>!Fonts.shx[fontKey(w)]):[];
     $('#fontInfo').innerHTML=(keys.length?`불러온 글꼴: ${keys.map(k=>`<span title="${Fonts.shx[k].kind}" style="white-space:nowrap">${k} <a href="#" data-fdel="${k}" style="color:var(--bad);text-decoration:none">✕</a></span>`).join(', ')}<br>`:'')+
       (Fonts.shx[bk]?'':'한글은 <b>whgtxt.shx</b>를 불러와야 그립니다. AutoCAD 폴더 <code>C:\\Program Files\\Autodesk\\AutoCAD 20xx\\Fonts</code> 에 있어요.<br>')+
