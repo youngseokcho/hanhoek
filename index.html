@@ -45,8 +45,8 @@ header{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(-
 .btn.icon{padding:4px 7px}
 #alarm{display:none;background:#fde8e8;color:#8a1c1c;padding:6px 12px;border-bottom:1px solid #f3bcbc;align-items:center;gap:10px;font-weight:600;flex:none}
 #alarm.show{display:flex}
-main{flex:1;display:grid;grid-template-columns:212px 1fr 236px;gap:8px;padding:8px;min-height:0}
-main.noleft{grid-template-columns:0 1fr 236px} main.noright{grid-template-columns:212px 1fr 0} main.noleft.noright{grid-template-columns:0 1fr 0}
+main{flex:1;display:grid;grid-template-columns:212px 1fr 268px;gap:8px;padding:8px;min-height:0}
+main.noleft{grid-template-columns:0 1fr 268px} main.noright{grid-template-columns:212px 1fr 0} main.noleft.noright{grid-template-columns:0 1fr 0}
 main.noleft #left, main.noright #right{display:none}
 #left{grid-column:1;grid-row:1} .center{grid-column:2;grid-row:1} #right{grid-column:3;grid-row:1}
 .col{display:flex;flex-direction:column;gap:8px;min-width:0;overflow:auto}
@@ -91,7 +91,7 @@ main.noleft #left, main.noright #right{display:none}
 .tabs button{flex:1;border:0;background:transparent;padding:4px 2px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;color:var(--muted)}
 .tabs button.on{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.1)}
 .tab{display:none}.tab.on{display:block}
-.f{display:grid;grid-template-columns:1fr 74px;gap:4px 6px;align-items:center}
+.f{display:grid;grid-template-columns:1fr 112px;gap:4px 6px;align-items:center}
 .f label{font-size:12px;line-height:1.25}
 .f label small{display:block;color:var(--muted);font-size:10.5px}
 .f input[type=number],.f select{width:100%;padding:3px 5px;border:1px solid var(--line);border-radius:6px;background:var(--panel);text-align:right}
@@ -270,10 +270,10 @@ main.noleft #left, main.noright #right{display:none}
         <div class="sep"></div>
         <h3 style="margin:0 0 4px;font-size:12px;color:var(--muted)">글자 <span style="font-weight:500">단선(한 줄) 글꼴로 그리기</span></h3>
         <div class="f" style="margin-top:4px">
-          <label>영문·숫자<small>DXF 기본</small></label><select id="selMain"></select>
-          <label>한글 큰 글꼴<small>DXF 기본</small></label><select id="selBig"></select>
-          <label>PDF 영문·숫자<small>PDF 글자만</small></label><select id="selPdfMain"></select>
-          <label>PDF 한글<small>PDF 글자만</small></label><select id="selPdfBig"></select>
+          <label>영문·숫자<small>DXF 기본</small></label><select class="full" id="selMain"></select>
+          <label>한글 큰 글꼴<small>DXF 기본</small></label><select class="full" id="selBig"></select>
+          <label>PDF 영문·숫자<small>PDF 글자만</small></label><select class="full" id="selPdfMain"></select>
+          <label>PDF 한글<small>PDF 글자만</small></label><select class="full" id="selPdfBig"></select>
         </div>
         <button class="btn sm" id="bFontLoad" style="width:100%;margin-top:6px" title="AutoCAD Fonts 폴더의 .shx 파일">📂 AutoCAD 글꼴(.shx) 불러오기</button>
         <input type="file" id="fileShx" accept=".shx" multiple hidden>
@@ -283,7 +283,7 @@ main.noleft #left, main.noright #right{display:none}
       <div class="tab" id="tPen">
         <div class="tip">🪙 <b>동전 영점 방식</b><br>종이 위에 동전을 놓고, Z−로 펜 끝이 동전에 막 닿게 한 뒤 <b>Z 영점(동전)</b>을 누릅니다. 동전을 치우면 고무가 펜을 종이까지 내려 줍니다. 그래서 내림은 Z0, 올림은 동전 두께와 고무 늘어남보다 충분히 높게(Z5) 둡니다.</div>
         <div class="f" style="margin-top:8px">
-          <label>펜 종류<small>실제 선 굵기를 채워 줌</small></label><select data-k="penPreset" id="penPreset">
+          <label>펜 종류<small>실제 선 굵기를 채워 줌</small></label><select class="full" data-k="penPreset" id="penPreset">
             <option value="ball04">볼펜 0.4 (쥬스업 등) ≈0.15</option><option value="ball05">볼펜 0.5 ≈0.2</option><option value="ball07">볼펜 0.7 ≈0.3</option>
             <option value="gel038">젤펜 0.38 ≈0.2</option><option value="liner03">수성 파인라이너 0.3 ≈0.3</option><option value="tech04">제도펜·사인펜 0.4 ≈0.4</option><option value="custom">직접 입력</option></select>
           <label>실제 선 굵기 mm<small>종이에 그어진 굵기 · 용지 추천 기준</small></label><input type="number" step="0.01" min="0.03" data-k="lineW">
